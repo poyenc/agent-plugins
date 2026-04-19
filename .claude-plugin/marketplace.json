@@ -1,0 +1,9 @@
+{
+  "name": "agent-plugins",
+  "description": "Personal Claude Code plugins",
+  "plugins": {
+    "knowledge-management": {
+      "path": "knowledge-management"
+    }
+  }
+}
