@@ -1,9 +1,14 @@
 {
   "name": "agent-plugins",
   "description": "Personal Claude Code plugins",
-  "plugins": {
-    "knowledge-management": {
-      "path": "knowledge-management"
+  "owner": {
+    "name": "PoYen, Chen"
+  },
+  "plugins": [
+    {
+      "name": "knowledge-management",
+      "source": "./knowledge-management",
+      "description": "Automatic branch-aware knowledge management with layered overlays, conditional topic loading, and merge promotion."
     }
-  }
+  ]
 }
