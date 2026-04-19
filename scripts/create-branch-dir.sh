@@ -14,10 +14,15 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[ -z "$PROJECT_DIR" ] || [ -z "$BRANCH" ] || [ -z "$PARENT" ] && {
+if [ -z "$PROJECT_DIR" ] || [ -z "$BRANCH" ] || [ -z "$PARENT" ]; then
     echo "Usage: create-branch-dir.sh --project-dir DIR --branch NAME --parent PARENT [--mode full|lightweight]" >&2
     exit 1
-}
+fi
+
+if [[ "$MODE" != "full" && "$MODE" != "lightweight" ]]; then
+    echo "Error: --mode must be 'full' or 'lightweight' (got: '$MODE')" >&2
+    exit 1
+fi
 
 SANITIZED="$(sanitize_branch_name "$BRANCH")"
 BRANCH_DIR="$PROJECT_DIR/branches/$SANITIZED"

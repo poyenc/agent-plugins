@@ -13,10 +13,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-[ -z "$BRANCH_DIR" ] || [ -z "$TASK" ] && {
+if [ -z "$BRANCH_DIR" ] || [ -z "$TASK" ] || [ -z "$GOAL" ]; then
     echo "Usage: create-task-dir.sh --branch-dir DIR --task NAME --goal 'description'" >&2
     exit 1
-}
+fi
 
 TASK_DIR="$BRANCH_DIR/tasks/$TASK"
 TODAY="$(date +%Y-%m-%d)"

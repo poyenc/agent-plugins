@@ -40,6 +40,22 @@ else
     echo "FAIL: lightweight branch should not have knowledge/workflows dirs"
 fi
 
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ ! -f "$LW_DIR/directives.md" ]; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo "FAIL: lightweight branch should not have directives.md"
+fi
+
+TESTS_RUN=$((TESTS_RUN + 1))
+if [ ! -d "$LW_DIR/tasks" ]; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo "FAIL: lightweight branch should not have tasks dir"
+fi
+
 # --- Idempotent ---
 "$SCRIPT_DIR/../scripts/create-branch-dir.sh" \
     --project-dir "$PROJECT_DIR" --branch "feature/auth" --parent "develop" --mode "full" 2>/dev/null
