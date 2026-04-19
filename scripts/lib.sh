@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # scripts/lib.sh — Shared functions for knowledge-management plugin
+# Sourcing scripts should set: set -euo pipefail
 
 sanitize_branch_name() {
     echo "$1" | sed 's|/|--|g'
@@ -24,11 +25,11 @@ resolve_storage_root() {
             root="$(python3 -c "
 import json, os, sys
 try:
-    d = json.load(open('$settings_file'))
+    d = json.load(open(sys.argv[1]))
     r = d.get('knowledge', {}).get('root', '')
     if r: print(os.path.expanduser(r))
-except: pass
-" 2>/dev/null)"
+except Exception: pass
+" "$settings_file" 2>/dev/null)"
             [ -n "$root" ] && break
         fi
     done
@@ -63,10 +64,12 @@ is_default_branch() {
 
 read_meta_field() {
     local file="$1" field="$2"
+    # Handles both backtick-wrapped (`value`) and bare (value) formats
+    # Uses \Q...\E to escape field name in PCRE
     local val=""
-    val="$(grep -oP "^\*\*${field}:\*\*\s*\`\K[^\`]+" "$file" 2>/dev/null | head -1)"
+    val="$(grep -oP "^\*\*\Q${field}\E:\*\*\s*\`\K[^\`]+" "$file" 2>/dev/null | head -1)"
     if [ -z "$val" ]; then
-        val="$(grep -oP "^\*\*${field}:\*\*\s*\K\S.*" "$file" 2>/dev/null | head -1)"
+        val="$(grep -oP "^\*\*\Q${field}\E:\*\*\s*\K\S.*" "$file" 2>/dev/null | head -1)"
     fi
     echo "$val"
 }
@@ -74,7 +77,12 @@ read_meta_field() {
 write_meta_field() {
     local file="$1" field="$2" value="$3"
     if grep -q "^\*\*${field}:\*\*" "$file" 2>/dev/null; then
-        sed -i "s|^\*\*${field}:\*\*.*|**${field}:** \`${value}\`|" "$file"
+        # Delete the old line, then append the new one at the same position
+        local tmpfile="${file}.tmp"
+        awk -v field="$field" -v value="$value" '
+            $0 ~ "^\\*\\*" field ":\\*\\*" { print "**" field ":** `" value "`"; next }
+            { print }
+        ' "$file" > "$tmpfile" && mv "$tmpfile" "$file"
     else
         echo "**${field}:** \`${value}\`" >> "$file"
     fi
