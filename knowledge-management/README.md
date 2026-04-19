@@ -83,15 +83,3 @@ Override in `~/.claude/settings.json`:
 }
 ```
 
-## Migration
-
-Migrate from the old `~/.claude/notes/` structure:
-
-```bash
-bash knowledge-management/scripts/migrate.sh ~/.claude/notes
-```
-
-## Design
-
-- [Spec](https://github.com/poyenc/claude-code-setting/blob/main/docs/superpowers/specs/2026-04-19-branch-knowledge-management-design.md)
-- [Implementation Plan](https://github.com/poyenc/claude-code-setting/blob/main/docs/superpowers/plans/2026-04-19-branch-knowledge-management.md)
