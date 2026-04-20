@@ -37,55 +37,96 @@ emit_file() {
     fi
 }
 
-# Strip boilerplate from user.md: remove template comments, empty section headers,
-# "Copy this file to..." lines, and "Add any personal notes" lines
+# Collapse user.md to inline format: env: K=V K=V | prefs: a, b, c
 strip_user_boilerplate() {
-    sed -E '/^# User Preferences/d;
-            /^Copy this file to/d;
-            /^Add any personal notes/d;
-            /^## Notes\s*$/d' | \
-    sed -E '/^```bash$/,/^```$/{/^# /d}' | \
-    sed -E '/^\s*$/N;/^\n\s*$/d'
+    local in_code=0 env_vars="" prefs="" notes="" section=""
+    while IFS= read -r line; do
+        # Track sections
+        if [[ "$line" =~ ^##[[:space:]]+(.*) ]]; then
+            section="${BASH_REMATCH[1],,}"; continue
+        fi
+        [[ "$line" =~ ^#\  ]] && continue
+        [[ "$line" =~ ^Copy\ this\ file ]] && continue
+        [[ "$line" =~ ^Add\ any\ personal ]] && continue
+        if [[ "$line" =~ ^\`\`\` ]]; then
+            in_code=$(( 1 - in_code )); continue
+        fi
+        [[ -z "$line" ]] && continue
+        case "$section" in
+            environment*)
+                # Collect KEY=VALUE assignments, skip bash comments
+                if [[ "$line" =~ ^[A-Z_]+= ]]; then
+                    env_vars+="${line} "
+                fi
+                ;;
+            preference*)
+                # Strip leading "- " and collect
+                local pref="${line#- }"
+                prefs+="${prefs:+, }${pref}"
+                ;;
+            note*)
+                notes+="${notes:+; }${line#- }"
+                ;;
+            *)
+                # Unknown section — pass through as prefs
+                if [[ "$line" =~ ^-\  ]]; then
+                    local item="${line#- }"
+                    prefs+="${prefs:+, }${item}"
+                fi
+                ;;
+        esac
+    done
+    [ -n "$env_vars" ] && echo "env: ${env_vars% }"
+    [ -n "$prefs" ] && echo "prefs: $prefs"
+    [ -n "$notes" ] && echo "notes: $notes"
 }
 
-# Collapse YAML config block to compact key=value lines, strip headings/fences/blanks
+# Collapse YAML config block: auto-save → single line, other keys → single line, strip headings/fences/blanks
 compact_directives() {
-    local in_yaml=0 in_auto_save=0
+    local in_yaml=0 in_auto_save=0 auto_save_parts="" other_keys=""
     while IFS= read -r line; do
-        # Skip markdown headings
         [[ "$line" =~ ^#+\  ]] && continue
-        # Skip blank lines
         [[ -z "$line" ]] && continue
-        # Detect YAML fence boundaries
         if [[ "$line" =~ ^\`\`\` ]]; then
-            if [ $in_yaml -eq 0 ]; then in_yaml=1; else in_yaml=0; fi
+            if [ $in_yaml -eq 0 ]; then in_yaml=1; else
+                # End of YAML — flush accumulated config
+                [ -n "$auto_save_parts" ] && echo "auto-save: $auto_save_parts"
+                [ -n "$other_keys" ] && echo "${other_keys# }"
+                auto_save_parts=""; other_keys=""; in_yaml=0
+            fi
             continue
         fi
         if [ $in_yaml -eq 1 ]; then
-            # auto-save sub-keys: flatten to dotted notation
-            if [[ "$line" =~ ^auto-save: ]]; then
-                in_auto_save=1; continue
-            fi
+            if [[ "$line" =~ ^auto-save: ]]; then in_auto_save=1; continue; fi
             if [ $in_auto_save -eq 1 ]; then
                 if [[ "$line" =~ ^[[:space:]]+(auto|ask|never|default):[[:space:]]*(.*) ]]; then
-                    echo "auto-save.${BASH_REMATCH[1]}: ${BASH_REMATCH[2]}"
+                    auto_save_parts+="${BASH_REMATCH[1]}=${BASH_REMATCH[2]} "
                     continue
                 else
                     in_auto_save=0
                 fi
             fi
-            # Other top-level config keys
-            echo "$line"
+            # Accumulate other config keys on one line
+            other_keys+=" $line"
         else
-            # Non-YAML content (rules, etc.) — pass through
             echo "$line"
         fi
     done
 }
 
-# Strip redundant fields from meta.md (Branch, HEAD, Project are in gitStatus/env)
-strip_meta_redundant() {
-    grep -vP '^\*\*(Branch|HEAD|Project):\*\*'
+# Collapse meta.md to a single-line compact format
+compact_meta() {
+    local parts=""
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^\*\*(Branch|HEAD|Project):\*\* ]]; then continue; fi
+        if [[ "$line" =~ ^\*\*([^:]+):\*\*[[:space:]]*\`?([^\`]*)\`? ]]; then
+            local key="${BASH_REMATCH[1]}" val="${BASH_REMATCH[2]}"
+            # Lowercase key, remove spaces
+            key="$(echo "$key" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
+            parts+="${key}=${val} "
+        fi
+    done
+    [ -n "$parts" ] && echo "${parts% }"
 }
 
 # Collect a file path for on-demand loading (appends to ON_DEMAND_REFS)
@@ -106,7 +147,7 @@ has_real_content() {
     grep -qP '^(?!#|\s*$|<!--)' "$1" 2>/dev/null
 }
 
-# Emit a compact task summary instead of the full status.md
+# Emit task as 2 lines: header with status, goal on next line
 emit_task_summary() {
     local task_dir="$1" task_name="$2"
     local status_file="$task_dir/status.md"
@@ -114,11 +155,11 @@ emit_task_summary() {
     local goal status
     goal="$(sed -n '/^## Goal/,/^##/{/^## Goal/d;/^##/d;/^\s*$/d;p;q}' "$status_file" 2>/dev/null)"
     status="$(grep -oP '^\*\*Status:\*\*\s*\K.+' "$status_file" 2>/dev/null | head -1)"
-    echo "=== Active Task: $task_name ==="
-    [ -n "$status" ] && echo "Status: $status"
+    local line="Task: $task_name"
+    [ -n "$status" ] && line+=" | $status"
+    line+=" | details=$status_file"
+    echo "$line"
     [ -n "$goal" ] && echo "Goal: $goal"
-    echo "Details: $status_file"
-    echo ""
 }
 
 # --- No knowledge base yet — emit minimal context ---
@@ -182,7 +223,7 @@ SETUP
     exit 0
 fi
 
-emit_file "$BRANCH_DIR/meta.md"              "Branch Meta ($BRANCH)" "strip_meta_redundant"
+emit_file "$BRANCH_DIR/meta.md"              "Branch: $BRANCH" "compact_meta"
 emit_ref  "$BRANCH_DIR/directives.md"        "Branch Directives"
 emit_ref  "$BRANCH_DIR/knowledge/index.md"   "Branch Knowledge Index"
 emit_ref  "$BRANCH_DIR/workflows/index.md"   "Branch Workflows Index"

@@ -1,8 +1,6 @@
 ---
 name: task-switch
-description: >
-  Switch to a different task within the current branch. Use when the user says
-  "switch to task X", "work on X", or "change task". Fuzzy matches task names.
+description: Switch to a different task within the current branch (fuzzy match).
 ---
 
 # /task-switch <name>

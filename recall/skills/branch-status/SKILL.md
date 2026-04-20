@@ -1,8 +1,6 @@
 ---
 name: branch-status
-description: >
-  Show an overview of all tracked branches: active, stale, merged, archived.
-  Use when the user asks about branch state, "what branches exist", or "show branches".
+description: Overview of all tracked branches (active, stale, merged, archived).
 ---
 
 # /branch-status

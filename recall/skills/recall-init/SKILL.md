@@ -1,9 +1,6 @@
 ---
 name: recall-init
-description: >
-  One-time project setup for the recall system. Creates the directory
-  structure, default configuration, and initial files. Use when setting up a new project
-  or when the user asks to initialize knowledge tracking.
+description: One-time project setup — creates directories, config, and initial files.
 ---
 
 # /recall-init

@@ -1,9 +1,6 @@
 ---
 name: promote
-description: >
-  Promote branch knowledge to project level after a merge. Can be triggered automatically
-  (when merged branches are detected) or manually with /promote [branch]. Use when merging
-  or when the user asks to promote knowledge.
+description: Promote branch knowledge to project level after merge.
 ---
 
 # /promote [branch]

@@ -1,8 +1,6 @@
 ---
 name: task-complete
-description: >
-  Mark the current task as completed and review knowledge for promotion to branch level.
-  Use when the user says "task done", "complete task", "finish task", or marks work as done.
+description: Mark task completed and review knowledge for branch promotion.
 ---
 
 # /task-complete [name]

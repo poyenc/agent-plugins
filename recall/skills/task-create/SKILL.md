@@ -1,9 +1,6 @@
 ---
 name: task-create
-description: >
-  Create a new task under the current branch. Use when the user says "create a task",
-  "start working on X", or "new task". Requires being on a non-default branch with
-  knowledge tracking initialized.
+description: Create a new task under the current branch.
 ---
 
 # /task-create <name>

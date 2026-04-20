@@ -1,9 +1,6 @@
 ---
 name: recall-add
-description: >
-  Add a knowledge entry with explicit scope control. Use when the user asks to save,
-  document, or record a finding, or when the agent needs to override automatic scope decisions.
-  Supports --project and --branch flags to force scope.
+description: Add knowledge entry with scope control (--project/--branch flags).
 ---
 
 # /recall-add <topic> [--project|--branch]

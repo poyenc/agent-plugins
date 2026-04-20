@@ -1,8 +1,6 @@
 ---
 name: recall-changelog
-description: >
-  Show recent changes across all knowledge files. Use when the user asks what's changed,
-  "what did we learn recently", or wants a summary of recent findings.
+description: Show recent changes across all knowledge files.
 ---
 
 # /recall-changelog [days]

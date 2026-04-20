@@ -1,8 +1,6 @@
 ---
 name: branch-abandon
-description: >
-  Abandon the current branch, salvage useful knowledge to project level, and archive.
-  Use when a feature is cancelled, approach scrapped, or branch is no longer needed.
+description: Abandon branch, salvage knowledge to project level, and archive.
 ---
 
 # /branch-abandon

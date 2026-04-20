@@ -1,8 +1,6 @@
 ---
 name: recall-help
-description: >
-  List all recall commands with descriptions and explain how the system works.
-  Use when the user asks for help, is new to the system, or asks about available commands.
+description: List all recall commands and explain how the system works.
 ---
 
 # /recall-help

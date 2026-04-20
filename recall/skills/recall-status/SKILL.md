@@ -1,9 +1,6 @@
 ---
 name: recall-status
-description: >
-  Show the current state of the recall system: active branch, current task,
-  knowledge topics loaded, stale branches, unpromoted knowledge. Use when the
-  user asks about the current knowledge state (session start is handled by the hook).
+description: Show recall state — branch, task, loaded topics, stale/unpromoted info.
 ---
 
 # /recall-status

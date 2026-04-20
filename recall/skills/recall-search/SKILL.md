@@ -1,8 +1,6 @@
 ---
 name: recall-search
-description: >
-  Search across all knowledge files including archives. Use when the user asks to find
-  past findings, search knowledge, or look up information across branches.
+description: Search across all knowledge files including archives.
 ---
 
 # /recall-search <query>

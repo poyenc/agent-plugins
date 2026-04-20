@@ -1,8 +1,6 @@
 ---
 name: task-abandon
-description: >
-  Abandon the current task, capture what was learned, and salvage useful knowledge.
-  Use when an approach didn't work, requirements changed, or a task is no longer needed.
+description: Abandon current task, capture learnings, salvage useful knowledge.
 ---
 
 # /task-abandon [name]
