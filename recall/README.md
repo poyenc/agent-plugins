@@ -4,16 +4,9 @@ Automatic branch-aware recall system for Claude Code. Tracks what you learn acro
 
 ## Quick Start
 
-**Step 1.** Add these 2 lines to your `CLAUDE.md` (global or per-project):
+Install the plugin, then run `/recall-init` once per project. That's it.
 
-```markdown
-## Recall
-Knowledge is stored at ~/.local/share/claude/recall/. The recall plugin auto-loads context at session start.
-```
-
-**Step 2.** Start a Claude Code session and run `/recall-init` once per project.
-
-That's it. The agent now tracks your branch, loads relevant knowledge at session start, and saves findings as you work.
+The hook auto-loads relevant knowledge at every session start — no CLAUDE.md configuration needed.
 
 ## What's Automatic vs. What You Type
 
