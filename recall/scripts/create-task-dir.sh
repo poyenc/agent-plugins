@@ -28,20 +28,11 @@ fi
 mkdir -p "$TASK_DIR"
 
 cat > "$TASK_DIR/status.md" << EOF
-# Task: $TASK
-
 **Status:** active
 **Created:** $TODAY
-**Branch:** $BRANCH_DIR
 
 ## Goal
 $GOAL
-
-## Progress
-
-## Next Steps
-
-## Hypotheses
 EOF
 
 write_meta_field "$BRANCH_DIR/meta.md" "Active Task" "$TASK"

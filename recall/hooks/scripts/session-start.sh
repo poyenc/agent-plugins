@@ -23,13 +23,69 @@ PROJECT_DIR="$ROOT/$PROJECT"
 # --- Helpers ---
 
 # Emit a file's content inline with a header, skip if missing/empty
+# Optional $3: filter command applied via pipe (e.g. "grep -v '^#'")
 emit_file() {
-    local filepath="$1" label="$2"
+    local filepath="$1" label="$2" filter="${3:-}"
     if [ -f "$filepath" ] && [ -s "$filepath" ]; then
         echo "=== $label ==="
-        cat "$filepath"
+        if [ -n "$filter" ]; then
+            eval "$filter" < "$filepath"
+        else
+            cat "$filepath"
+        fi
         echo ""
     fi
+}
+
+# Strip boilerplate from user.md: remove template comments, empty section headers,
+# "Copy this file to..." lines, and "Add any personal notes" lines
+strip_user_boilerplate() {
+    sed -E '/^# User Preferences/d;
+            /^Copy this file to/d;
+            /^Add any personal notes/d;
+            /^## Notes\s*$/d' | \
+    sed -E '/^```bash$/,/^```$/{/^# /d}' | \
+    sed -E '/^\s*$/N;/^\n\s*$/d'
+}
+
+# Collapse YAML config block to compact key=value lines, strip headings/fences/blanks
+compact_directives() {
+    local in_yaml=0 in_auto_save=0
+    while IFS= read -r line; do
+        # Skip markdown headings
+        [[ "$line" =~ ^#+\  ]] && continue
+        # Skip blank lines
+        [[ -z "$line" ]] && continue
+        # Detect YAML fence boundaries
+        if [[ "$line" =~ ^\`\`\` ]]; then
+            if [ $in_yaml -eq 0 ]; then in_yaml=1; else in_yaml=0; fi
+            continue
+        fi
+        if [ $in_yaml -eq 1 ]; then
+            # auto-save sub-keys: flatten to dotted notation
+            if [[ "$line" =~ ^auto-save: ]]; then
+                in_auto_save=1; continue
+            fi
+            if [ $in_auto_save -eq 1 ]; then
+                if [[ "$line" =~ ^[[:space:]]+(auto|ask|never|default):[[:space:]]*(.*) ]]; then
+                    echo "auto-save.${BASH_REMATCH[1]}: ${BASH_REMATCH[2]}"
+                    continue
+                else
+                    in_auto_save=0
+                fi
+            fi
+            # Other top-level config keys
+            echo "$line"
+        else
+            # Non-YAML content (rules, etc.) — pass through
+            echo "$line"
+        fi
+    done
+}
+
+# Strip redundant fields from meta.md (Branch, HEAD, Project are in gitStatus/env)
+strip_meta_redundant() {
+    grep -vP '^\*\*(Branch|HEAD|Project):\*\*'
 }
 
 # Collect a file path for on-demand loading (appends to ON_DEMAND_REFS)
@@ -37,7 +93,11 @@ ON_DEMAND_REFS=""
 emit_ref() {
     local filepath="$1" label="$2"
     if [ -f "$filepath" ] && has_real_content "$filepath"; then
-        ON_DEMAND_REFS="${ON_DEMAND_REFS}- ${label}: ${filepath}"$'\n'
+        if [ -n "$ON_DEMAND_REFS" ]; then
+            ON_DEMAND_REFS="${ON_DEMAND_REFS}, ${label}=${filepath}"
+        else
+            ON_DEMAND_REFS="${label}=${filepath}"
+        fi
     fi
 }
 
@@ -79,8 +139,8 @@ echo "RECALL_ROOT=$ROOT"
 echo ""
 
 # --- Project-level knowledge (directives and user inline, indexes as refs) ---
-emit_file "$PROJECT_DIR/directives.md"       "Project Directives ($PROJECT)"
-emit_file "$PROJECT_DIR/user.md"             "User Profile ($PROJECT)"
+emit_file "$PROJECT_DIR/directives.md"       "Project Directives ($PROJECT)" "compact_directives"
+emit_file "$PROJECT_DIR/user.md"             "User Profile ($PROJECT)" "strip_user_boilerplate"
 emit_ref  "$PROJECT_DIR/knowledge/index.md"  "Project Knowledge Index"
 emit_ref  "$PROJECT_DIR/workflows/index.md"  "Project Workflows Index"
 
@@ -122,7 +182,7 @@ SETUP
     exit 0
 fi
 
-emit_file "$BRANCH_DIR/meta.md"              "Branch Meta ($BRANCH)"
+emit_file "$BRANCH_DIR/meta.md"              "Branch Meta ($BRANCH)" "strip_meta_redundant"
 emit_ref  "$BRANCH_DIR/directives.md"        "Branch Directives"
 emit_ref  "$BRANCH_DIR/knowledge/index.md"   "Branch Knowledge Index"
 emit_ref  "$BRANCH_DIR/workflows/index.md"   "Branch Workflows Index"
@@ -145,18 +205,11 @@ if [ -f "$BRANCH_DIR/meta.md" ]; then
     fi
 fi
 
-# --- On-demand file references ---
+# --- On-demand file references (compact format) ---
 if [ -n "$ON_DEMAND_REFS" ]; then
-    echo "## On-demand files"
-    echo "Read these before starting related work:"
-    printf '%s' "$ON_DEMAND_REFS"
-    echo ""
+    echo "On-demand: $ON_DEMAND_REFS"
 fi
 
 cat << 'RULES'
-## Recall Rules
-- Follow auto-save categories in directives above (auto/ask/never). Default: auto.
-- Only save [VERIFIED] or [OBSERVED] facts. Hypotheses → status.md.
-- Load topic files from indexes on demand — don't read everything upfront.
-- Before completing a task, review conversation for unsaved findings.
+Recall: save only [VERIFIED]/[OBSERVED] facts; hypotheses → status.md. Load topic files from indexes on demand.
 RULES

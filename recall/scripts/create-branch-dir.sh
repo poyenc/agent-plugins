@@ -36,33 +36,21 @@ fi
 mkdir -p "$BRANCH_DIR"
 
 cat > "$BRANCH_DIR/meta.md" << EOF
-**Branch:** \`$BRANCH\`
 **Parent:** \`$PARENT\`
 **Created:** $TODAY
 **Status:** active
 **Mode:** $MODE
 **Active Task:** none
-**HEAD:** $HEAD
-**Project:** $PROJECT_DIR
 EOF
 
 if [ "$MODE" = "full" ]; then
-    cat > "$BRANCH_DIR/directives.md" << 'EOF'
-# Branch Directives
-<!-- Branch-level agent behavior rules. Inherits from project-level directives. -->
-EOF
+    touch "$BRANCH_DIR/directives.md"
 
     mkdir -p "$BRANCH_DIR/knowledge"
-    cat > "$BRANCH_DIR/knowledge/index.md" << 'EOF'
-# Branch Knowledge Topics
-<!-- New knowledge discovered on this branch. Project-level knowledge is inherited automatically. -->
-EOF
+    touch "$BRANCH_DIR/knowledge/index.md"
 
     mkdir -p "$BRANCH_DIR/workflows"
-    cat > "$BRANCH_DIR/workflows/index.md" << 'EOF'
-# Branch Workflow Topics
-<!-- New workflows specific to this branch. Project-level workflows are inherited automatically. -->
-EOF
+    touch "$BRANCH_DIR/workflows/index.md"
 
     mkdir -p "$BRANCH_DIR/tasks"
 fi
