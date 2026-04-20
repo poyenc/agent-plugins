@@ -6,7 +6,7 @@ A collection of Claude Code plugins for development workflow automation.
 
 | Plugin | Description |
 |--------|-------------|
-| **[knowledge-management](knowledge-management/README.md)** | Automatic branch-aware knowledge management. Tracks project knowledge across branches and tasks with layered overlays, conditional topic loading, auto-save rules, and merge promotion. |
+| **[recall](recall/README.md)** | Automatic branch-aware recall system. Tracks project knowledge across branches and tasks with layered overlays, conditional topic loading, auto-save rules, and merge promotion. |
 
 ## Installation
 
@@ -23,7 +23,7 @@ This repo is a local Claude Code marketplace. Add it to `~/.claude/settings.json
     }
   },
   "enabledPlugins": {
-    "knowledge-management@agent-plugins": true
+    "recall@agent-plugins": true
   }
 }
 ```
