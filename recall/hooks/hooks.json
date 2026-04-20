@@ -1,5 +1,5 @@
 {
-  "description": "Injects current branch name at session start for knowledge bootstrap",
+  "description": "Injects branch-aware knowledge (directives, user profile, topic indexes, task state) into session context at start",
   "hooks": {
     "SessionStart": [
       {

@@ -34,5 +34,5 @@ confidence-min: observed
 **workflows/index.md** — empty workflow index
 **user.md** — placeholder for container name, worktree path
 
-5. If not on a default branch, also create the branch directory using `${CLAUDE_PLUGIN_ROOT}/scripts/create-branch-dir.sh`.
+5. If not on a default branch, assess branch type from name pattern (lightweight: hotfix/*, fix/*, typo/*, docs/*; full: everything else), then create the branch directory using `${CLAUDE_PLUGIN_ROOT}/scripts/create-branch-dir.sh` with the appropriate `--mode` flag. For full branches, ask "What's the epic/goal for this branch?"
 6. Report: "Knowledge base initialized at <path>. I'll automatically track verified findings across branches and promote them when you merge. Run /recall-help for commands."

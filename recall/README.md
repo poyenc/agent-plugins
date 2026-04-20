@@ -8,7 +8,7 @@ Automatic branch-aware recall system for Claude Code. Tracks what you learn acro
 
 ```markdown
 ## Recall
-Use /recall-status at session start. Knowledge is stored at ~/.local/share/claude/recall/.
+Knowledge is stored at ~/.local/share/claude/recall/. The recall plugin auto-loads context at session start.
 ```
 
 **Step 2.** Start a Claude Code session and run `/recall-init` once per project.
