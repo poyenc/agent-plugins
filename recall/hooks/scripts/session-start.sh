@@ -8,12 +8,12 @@ if [ -f "$LIB" ]; then
     source "$LIB"
     ROOT="$(resolve_storage_root)"
 else
-    ROOT="${KNOWLEDGE_ROOT:-$HOME/.local/share/claude/knowledge}"
+    ROOT="${RECALL_ROOT:-$HOME/.local/share/claude/recall}"
 fi
 
 BRANCH="$(git branch --show-current 2>/dev/null || echo "DETACHED")"
 PROJECT="$(basename "$(git remote get-url origin 2>/dev/null | sed 's|.git$||; s|/$||')" 2>/dev/null || echo "unknown")"
 
-echo "KNOWLEDGE_BRANCH=$BRANCH"
-echo "KNOWLEDGE_PROJECT=$PROJECT"
-echo "KNOWLEDGE_ROOT=$ROOT"
+echo "RECALL_BRANCH=$BRANCH"
+echo "RECALL_PROJECT=$PROJECT"
+echo "RECALL_ROOT=$ROOT"

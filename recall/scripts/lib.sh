@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/lib.sh — Shared functions for knowledge-management plugin
+# scripts/lib.sh — Shared functions for recall plugin
 # Sourcing scripts should set: set -euo pipefail
 
 sanitize_branch_name() {
@@ -26,7 +26,7 @@ resolve_storage_root() {
 import json, os, sys
 try:
     d = json.load(open(sys.argv[1]))
-    r = d.get('knowledge', {}).get('root', '')
+    r = d.get('recall', {}).get('root', '')
     if r: print(os.path.expanduser(r))
 except Exception: pass
 " "$settings_file" 2>/dev/null)"
@@ -36,7 +36,7 @@ except Exception: pass
     if [ -n "$root" ]; then
         echo "$root"
     else
-        echo "$HOME/.local/share/claude/knowledge"
+        echo "$HOME/.local/share/claude/recall"
     fi
 }
 
