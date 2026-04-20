@@ -1,17 +1,17 @@
-# knowledge-management
+# recall
 
-Automatic branch-aware knowledge management for Claude Code. Tracks what you learn across branches and tasks so future sessions start with context instead of from scratch.
+Automatic branch-aware recall system for Claude Code. Tracks what you learn across branches and tasks so future sessions start with context instead of from scratch.
 
 ## Quick Start
 
 **Step 1.** Add these 2 lines to your `CLAUDE.md` (global or per-project):
 
 ```markdown
-## Knowledge Management
-Use /knowledge-status at session start. Knowledge is stored at ~/.local/share/claude/knowledge/.
+## Recall
+Use /recall-status at session start. Knowledge is stored at ~/.local/share/claude/recall/.
 ```
 
-**Step 2.** Start a Claude Code session and run `/knowledge-init` once per project.
+**Step 2.** Start a Claude Code session and run `/recall-init` once per project.
 
 That's it. The agent now tracks your branch, loads relevant knowledge at session start, and saves findings as you work.
 
@@ -52,8 +52,8 @@ When you discover something non-obvious, tell the agent in plain language:
 The agent writes it to the appropriate scope (project or branch) based on context. To override scope, either say so naturally or use flags:
 
 - *"Save this as project-level knowledge: ..."*
-- *"/knowledge-add --project this applies everywhere"*
-- *"/knowledge-add --branch this is specific to my current feature"*
+- *"/recall-add --project this applies everywhere"*
+- *"/recall-add --branch this is specific to my current feature"*
 
 ### "I'm switching to a different task on this branch"
 
@@ -84,9 +84,9 @@ You can also trigger this manually: `/promote my-branch-name`
 
 Ask naturally (*"what knowledge do we have?"*) or use commands:
 
-- `/knowledge-status` — current branch, active task, loaded topics
-- `/knowledge-search <query>` — search across all knowledge including archived branches
-- `/knowledge-changelog` — recent changes across all knowledge files
+- `/recall-status` — current branch, active task, loaded topics
+- `/recall-search <query>` — search across all knowledge including archived branches
+- `/recall-changelog` — recent changes across all knowledge files
 - `/branch-status` — overview of all tracked branches
 
 ### "This approach isn't working"
@@ -103,7 +103,7 @@ The key insight: even failed approaches produce knowledge. The abandon commands 
 Knowledge is organized in three layers: **project > branch > task**. Each layer only contains what's new at that level — no duplication. The agent reads all layers at session start and merges them.
 
 ```
-~/.local/share/claude/knowledge/<project>/
+~/.local/share/claude/recall/<project>/
   directives.md           # agent behavior rules + configuration
   knowledge/              # project-level topics (loaded conditionally)
   workflows/              # project-level procedures (loaded conditionally)
@@ -125,12 +125,12 @@ Knowledge is organized in three layers: **project > branch > task**. Each layer 
 
 | Command | Description |
 |---------|-------------|
-| `/knowledge-init` | One-time project setup |
-| `/knowledge-status` | Show current branch, task, and knowledge state |
-| `/knowledge-help` | List all commands and explain the system |
-| `/knowledge-add <topic>` | Save a finding (use `--project` or `--branch` to set scope) |
-| `/knowledge-search <query>` | Search across all knowledge including archives |
-| `/knowledge-changelog` | Show recent knowledge changes |
+| `/recall-init` | One-time project setup |
+| `/recall-status` | Show current branch, task, and knowledge state |
+| `/recall-help` | List all commands and explain the system |
+| `/recall-add <topic>` | Save a finding (use `--project` or `--branch` to set scope) |
+| `/recall-search <query>` | Search across all knowledge including archives |
+| `/recall-changelog` | Show recent knowledge changes |
 | `/branch-status` | Overview of all branches and their knowledge |
 | `/branch-abandon` | Abandon current branch, salvage useful knowledge |
 | `/promote [branch]` | Promote branch knowledge to project level |
@@ -159,12 +159,12 @@ Configure by talking to the agent: *"auto-save hardware findings"*, *"set stale 
 
 ## Storage
 
-Default: `~/.local/share/claude/knowledge/` (XDG convention).
+Default: `~/.local/share/claude/recall/` (XDG convention).
 
 Override in `~/.claude/settings.json`:
 ```json
 {
-  "knowledge": {
+  "recall": {
     "root": "~/my-notes"
   }
 }
