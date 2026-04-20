@@ -20,7 +20,9 @@ else
 fi
 PROJECT_DIR="$ROOT/$PROJECT"
 
-# --- Helper: emit a file's content with a header, skip if missing/empty ---
+# --- Helpers ---
+
+# Emit a file's content inline with a header, skip if missing/empty
 emit_file() {
     local filepath="$1" label="$2"
     if [ -f "$filepath" ] && [ -s "$filepath" ]; then
@@ -28,6 +30,35 @@ emit_file() {
         cat "$filepath"
         echo ""
     fi
+}
+
+# Collect a file path for on-demand loading (appends to ON_DEMAND_REFS)
+ON_DEMAND_REFS=""
+emit_ref() {
+    local filepath="$1" label="$2"
+    if [ -f "$filepath" ] && has_real_content "$filepath"; then
+        ON_DEMAND_REFS="${ON_DEMAND_REFS}- ${label}: ${filepath}"$'\n'
+    fi
+}
+
+# Check if file has content beyond headings, HTML comments, and whitespace
+has_real_content() {
+    grep -qP '^(?!#|\s*$|<!--)' "$1" 2>/dev/null
+}
+
+# Emit a compact task summary instead of the full status.md
+emit_task_summary() {
+    local task_dir="$1" task_name="$2"
+    local status_file="$task_dir/status.md"
+    [ -f "$status_file" ] || return
+    local goal status
+    goal="$(sed -n '/^## Goal/,/^##/{/^## Goal/d;/^##/d;/^\s*$/d;p;q}' "$status_file" 2>/dev/null)"
+    status="$(grep -oP '^\*\*Status:\*\*\s*\K.+' "$status_file" 2>/dev/null | head -1)"
+    echo "=== Active Task: $task_name ==="
+    [ -n "$status" ] && echo "Status: $status"
+    [ -n "$goal" ] && echo "Goal: $goal"
+    echo "Details: $status_file"
+    echo ""
 }
 
 # --- No knowledge base yet — emit minimal context ---
@@ -47,11 +78,11 @@ echo "RECALL_PROJECT=$PROJECT"
 echo "RECALL_ROOT=$ROOT"
 echo ""
 
-# --- Project-level knowledge (always loaded) ---
+# --- Project-level knowledge (directives and user inline, indexes as refs) ---
 emit_file "$PROJECT_DIR/directives.md"       "Project Directives ($PROJECT)"
 emit_file "$PROJECT_DIR/user.md"             "User Profile ($PROJECT)"
-emit_file "$PROJECT_DIR/knowledge/index.md"  "Project Knowledge Index ($PROJECT)"
-emit_file "$PROJECT_DIR/workflows/index.md"  "Project Workflows Index ($PROJECT)"
+emit_ref  "$PROJECT_DIR/knowledge/index.md"  "Project Knowledge Index"
+emit_ref  "$PROJECT_DIR/workflows/index.md"  "Project Workflows Index"
 
 # --- Stop here for detached HEAD or default branches ---
 if [ "$BRANCH" = "DETACHED" ]; then
@@ -92,10 +123,10 @@ SETUP
 fi
 
 emit_file "$BRANCH_DIR/meta.md"              "Branch Meta ($BRANCH)"
-emit_file "$BRANCH_DIR/directives.md"        "Branch Directives ($BRANCH)"
-emit_file "$BRANCH_DIR/knowledge/index.md"   "Branch Knowledge Index ($BRANCH)"
-emit_file "$BRANCH_DIR/workflows/index.md"   "Branch Workflows Index ($BRANCH)"
-emit_file "$BRANCH_DIR/user.md"              "Branch User Notes ($BRANCH)"
+emit_ref  "$BRANCH_DIR/directives.md"        "Branch Directives"
+emit_ref  "$BRANCH_DIR/knowledge/index.md"   "Branch Knowledge Index"
+emit_ref  "$BRANCH_DIR/workflows/index.md"   "Branch Workflows Index"
+emit_ref  "$BRANCH_DIR/user.md"              "Branch User Notes"
 
 # --- Active task knowledge ---
 if [ -f "$BRANCH_DIR/meta.md" ]; then
@@ -108,14 +139,21 @@ if [ -f "$BRANCH_DIR/meta.md" ]; then
 
     if [ -n "$ACTIVE_TASK" ] && [ "$ACTIVE_TASK" != "none" ]; then
         TASK_DIR="$BRANCH_DIR/tasks/$ACTIVE_TASK"
-        emit_file "$TASK_DIR/status.md"      "Active Task Status ($ACTIVE_TASK)"
-        emit_file "$TASK_DIR/knowledge.md"   "Active Task Knowledge ($ACTIVE_TASK)"
-        emit_file "$TASK_DIR/workflows.md"   "Active Task Workflows ($ACTIVE_TASK)"
+        emit_task_summary "$TASK_DIR" "$ACTIVE_TASK"
+        emit_ref "$TASK_DIR/knowledge.md"   "Active Task Knowledge"
+        emit_ref "$TASK_DIR/workflows.md"   "Active Task Workflows"
     fi
 fi
 
-cat << 'RULES'
+# --- On-demand file references ---
+if [ -n "$ON_DEMAND_REFS" ]; then
+    echo "## On-demand files"
+    echo "Read these before starting related work:"
+    printf '%s' "$ON_DEMAND_REFS"
+    echo ""
+fi
 
+cat << 'RULES'
 ## Recall Rules
 - Follow auto-save categories in directives above (auto/ask/never). Default: auto.
 - Only save [VERIFIED] or [OBSERVED] facts. Hypotheses → status.md.
