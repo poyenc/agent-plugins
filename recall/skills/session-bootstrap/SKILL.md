@@ -1,42 +1,42 @@
 ---
 name: session-bootstrap
 description: >
-  Internal skill for knowledge management session initialization. Automatically
+  Internal skill for recall session initialization. Automatically
   invoked at session start via hook. Detects branch, loads layered knowledge,
-  reports status. Not intended for direct user invocation — use /knowledge-status instead.
+  reports status. Not intended for direct user invocation — use /recall-status instead.
 ---
 
 # Session Bootstrap
 
-You are the knowledge management system. At session start, the hook has injected
-KNOWLEDGE_BRANCH, KNOWLEDGE_PROJECT, and KNOWLEDGE_ROOT into the conversation.
+You are the recall system. At session start, the hook has injected
+RECALL_BRANCH, RECALL_PROJECT, and RECALL_ROOT into the conversation.
 
 ## Bootstrap Flow
 
 1. **Read the variables** from the hook output above.
 
 2. **Check if storage root exists:**
-   - If `$KNOWLEDGE_ROOT/$KNOWLEDGE_PROJECT/` does NOT exist:
-     → Ask: "No knowledge base found for $KNOWLEDGE_PROJECT. Set one up? I'll automatically
+   - If `$RECALL_ROOT/$RECALL_PROJECT/` does NOT exist:
+     → Ask: "No knowledge base found for $RECALL_PROJECT. Set one up? I'll automatically
        track verified findings across branches and promote them when you merge.
-       Run /knowledge-help for commands."
+       Run /recall-help for commands."
      → If user confirms: run `${CLAUDE_PLUGIN_ROOT}/scripts/create-branch-dir.sh` after
        creating the project directory (directives.md, knowledge/index.md, workflows/index.md, user.md)
-     → If user declines: skip knowledge management for this session. Do not ask again.
+     → If user declines: skip recall for this session. Do not ask again.
 
-3. **If KNOWLEDGE_BRANCH = DETACHED:**
+3. **If RECALL_BRANCH = DETACHED:**
    → Say: "Detached HEAD — using project-level knowledge only."
    → Read project-level files only (step 5, project level).
    → Skip branch/task loading.
 
-4. **If KNOWLEDGE_BRANCH is a default branch (main/master/develop):**
+4. **If RECALL_BRANCH is a default branch (main/master/develop):**
    → Use project-level knowledge only.
    → Run `${CLAUDE_PLUGIN_ROOT}/scripts/detect-merged.sh` to check for merged branches.
    → If merged branches found, report them and offer promotion (see /promote skill).
    → Check for stale branches (read meta.md for each branch, compare HEAD date to config threshold).
    → Skip to step 5 (project level only).
 
-5. **Load layered knowledge.** Read `meta.md` from `$KNOWLEDGE_ROOT/$KNOWLEDGE_PROJECT/branches/<sanitized>/`.
+5. **Load layered knowledge.** Read `meta.md` from `$RECALL_ROOT/$RECALL_PROJECT/branches/<sanitized>/`.
 
    **If meta.md exists (known branch):**
    - Verify HEAD consistency: compare `**HEAD:**` in meta.md with `git rev-parse HEAD`.
@@ -88,4 +88,4 @@ Before marking a task as completed, review the conversation for any unsaved find
 ## Communication Principle
 
 When performing lifecycle operations, briefly explain what you're doing and why in one sentence.
-When users appear unfamiliar, proactively suggest relevant /knowledge-* commands.
+When users appear unfamiliar, proactively suggest relevant /recall-* commands.
