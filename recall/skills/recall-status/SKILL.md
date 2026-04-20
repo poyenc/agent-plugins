@@ -1,14 +1,14 @@
 ---
-name: knowledge-status
+name: recall-status
 description: >
-  Show the current state of the knowledge management system: active branch, current task,
+  Show the current state of the recall system: active branch, current task,
   knowledge topics loaded, stale branches, unpromoted knowledge. Use at session start or
   when the user asks about the current knowledge state.
 ---
 
-# /knowledge-status
+# /recall-status
 
-Show the current knowledge management state.
+Show the current recall state.
 
 ## Steps
 
@@ -26,7 +26,7 @@ Show the current knowledge management state.
 5. Format output as a compact status block:
 
 ```
-Knowledge Status
+Recall Status
   Project:  <name> (<storage-root>/<project>/)
   Branch:   <branch> (parent: <parent>, mode: <mode>)
   Task:     <active-task> (status: <status>)

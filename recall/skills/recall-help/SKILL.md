@@ -1,21 +1,21 @@
 ---
-name: knowledge-help
+name: recall-help
 description: >
-  List all knowledge management commands with descriptions and explain how the system works.
+  List all recall commands with descriptions and explain how the system works.
   Use when the user asks for help, is new to the system, or asks about available commands.
 ---
 
-# /knowledge-help
+# /recall-help
 
-Explain the knowledge management system and list available commands.
+Explain the recall system and list available commands.
 
 ## Response
 
 Print this help text:
 
 ```
-Knowledge Management System
-============================
+Recall System
+==============
 
 The system automatically tracks verified findings across branches and tasks.
 Knowledge is organized in layers: project > branch > task.
@@ -24,14 +24,14 @@ Each layer only contains what's NEW at that level — no duplication.
 Available commands:
 
   Setup & Info
-    /knowledge-init          Set up knowledge tracking for this project
-    /knowledge-status        Show current branch, task, and knowledge state
-    /knowledge-help          This help text
+    /recall-init          Set up knowledge tracking for this project
+    /recall-status        Show current branch, task, and knowledge state
+    /recall-help          This help text
 
   Knowledge
-    /knowledge-add <topic>   Save a finding (--project or --branch to set scope)
-    /knowledge-search <q>    Search across all knowledge including archives
-    /knowledge-changelog     Show recent knowledge changes
+    /recall-add <topic>   Save a finding (--project or --branch to set scope)
+    /recall-search <q>    Search across all knowledge including archives
+    /recall-changelog     Show recent knowledge changes
 
   Branches
     /branch-status           Overview of all branches and their knowledge
