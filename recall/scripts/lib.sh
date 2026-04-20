@@ -14,8 +14,8 @@ detect_project_name() {
 }
 
 resolve_storage_root() {
-    if [ -n "${KNOWLEDGE_ROOT:-}" ]; then
-        echo "$KNOWLEDGE_ROOT"
+    if [ -n "${RECALL_ROOT:-}" ]; then
+        echo "$RECALL_ROOT"
         return
     fi
     local root="" git_root=""
