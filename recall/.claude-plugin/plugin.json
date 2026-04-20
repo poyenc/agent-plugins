@@ -1,9 +1,9 @@
 {
-  "name": "knowledge-management",
-  "description": "Automatic branch-aware knowledge management for Claude Code. Tracks project knowledge across branches and tasks with layered overlays, conditional topic loading, and merge promotion.",
+  "name": "recall",
+  "description": "Automatic branch-aware recall system for Claude Code. Tracks project knowledge across branches and tasks with layered overlays, conditional topic loading, and merge promotion.",
   "version": "0.1.0",
   "author": {
     "name": "PoYen, Chen"
   },
-  "keywords": ["knowledge", "memory", "branches", "tasks", "overlay", "promotion"]
+  "keywords": ["recall", "knowledge", "memory", "branches", "tasks", "overlay", "promotion"]
 }

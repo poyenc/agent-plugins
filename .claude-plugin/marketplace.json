@@ -6,9 +6,9 @@
   },
   "plugins": [
     {
-      "name": "knowledge-management",
-      "source": "./knowledge-management",
-      "description": "Automatic branch-aware knowledge management with layered overlays, conditional topic loading, and merge promotion."
+      "name": "recall",
+      "source": "./recall",
+      "description": "Automatic branch-aware recall system with layered overlays, conditional topic loading, and merge promotion."
     }
   ]
 }
