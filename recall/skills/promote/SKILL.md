@@ -27,6 +27,7 @@ Promote branch knowledge to project level.
    c. For promotable content:
       - If a matching project-level topic exists → append to it
       - If no matching topic → create new topic file, add to project index.md
+      - After appending, if the topic file exceeds maintenance.topic-max-lines (from directives.md), split ### subsections into sibling topic files and update the project index.md.
    d. Move `branches/<sanitized>/` to `archive/<sanitized>/`
    e. Update archive meta.md with `**Status:** promoted` and date
    f. Report: "Promoted <N> findings from '<branch>' to project level. Branch archived."

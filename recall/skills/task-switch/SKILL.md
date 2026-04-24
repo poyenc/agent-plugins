@@ -21,5 +21,5 @@ Switch the active task within the current branch.
    - If multiple matches: list them and ask user to pick
    - If no match: ask "No task found matching '<name>'. Create a new task?"
 4. Update `**Active Task:**` in meta.md using write_meta_field.
-5. Read the new task's status.md, knowledge.md, and workflows.md.
+5. Read the new task's status.md, knowledge (knowledge.md if flat file, or knowledge/index.md if split into directory), and workflows.md.
 6. Report: "Switched to task '<name>'. Status: <status>. Goal: <first line of goal>."

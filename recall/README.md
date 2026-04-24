@@ -132,6 +132,34 @@ Knowledge is organized in three layers: **project > branch > task**. Each layer 
 | `/task-complete` | Mark task done, review knowledge for promotion |
 | `/task-abandon` | Abandon task, capture what was learned |
 
+## Knowledge Maintenance
+
+The plugin automatically maintains compact, well-organized knowledge files. This runs in the background — you don't need to do anything.
+
+### What happens automatically
+
+| Trigger | Action |
+|---------|--------|
+| `status.md` grows past limit | Marker added; compacted at task completion or next session start |
+| `knowledge.md` grows past limit | Split into `knowledge/` directory with per-topic files |
+| Knowledge topic grows past limit | Split into sibling topic files |
+| Agent reads a knowledge file | Fixes obvious errors (stale paths, duplicates) inline (max 2 per read) |
+| Cross-file issues found | Flagged with `<!-- quality-review: ... -->` for later |
+
+### Maintenance configuration
+
+Size limits are configured in `directives.md`:
+
+```yaml
+maintenance:
+  status-max-lines: 150      # soft limit — marks file for compaction
+  status-final-lines: 100    # hard limit — target size after compaction
+  topic-max-lines: 200       # max lines per knowledge topic file
+  task-knowledge-split-lines: 150  # when to split flat knowledge.md into directory
+```
+
+Adjust these by talking to the agent: *"set status-max-lines to 200"*.
+
 ## Configuration
 
 Settings live in `directives.md` under `## Configuration`:

@@ -22,6 +22,13 @@ Add knowledge to a specific topic with explicit scope control.
 2. Check confidence:
    - Read confidence-min from directives config
    - Only write [VERIFIED] or [OBSERVED] facts. Reject hypotheses with guidance to use status.md
-3. If topic file exists: read it, append the new finding with evidence citation
-4. If topic file doesn't exist: create it, add entry to the relevant index.md
+3. Determine target file:
+   - If writing to task knowledge and knowledge/ directory exists: target is knowledge/<topic>.md (create if new, update index.md).
+   - If writing to task knowledge and knowledge.md exists (flat): target is knowledge.md, append under matching ## section (create section if new).
+   - If writing to branch/project topic: target is knowledge/<topic>.md as before.
+4. If topic file exists: read it, append the new finding with evidence citation
+4.5. If topic file doesn't exist: create it, add entry to the relevant index.md
 5. Briefly explain: "Saved to <scope>/knowledge/<topic>.md — <reason>."
+6. **Size check**: After writing, check file line count against maintenance limits (from directives.md).
+   - Topic file over topic-max-lines: split ### subsections into sibling topic files, update the parent index.
+   - Task knowledge.md over task-knowledge-split-lines: split into knowledge/ directory with per-topic files + index.md. Leave a 2-line redirect at the original knowledge.md path.

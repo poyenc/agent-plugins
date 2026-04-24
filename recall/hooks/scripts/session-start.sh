@@ -83,7 +83,7 @@ strip_user_boilerplate() {
 
 # Collapse YAML config block: auto-save → single line, other keys → single line, strip headings/fences/blanks
 compact_directives() {
-    local in_yaml=0 in_auto_save=0 auto_save_parts="" other_keys=""
+    local in_yaml=0 in_auto_save=0 auto_save_parts="" other_keys="" in_maintenance=0 maintenance_parts=""
     while IFS= read -r line; do
         [[ "$line" =~ ^#+\  ]] && continue
         [[ -z "$line" ]] && continue
@@ -91,8 +91,9 @@ compact_directives() {
             if [ $in_yaml -eq 0 ]; then in_yaml=1; else
                 # End of YAML — flush accumulated config
                 [ -n "$auto_save_parts" ] && echo "auto-save: $auto_save_parts"
+                [ -n "$maintenance_parts" ] && echo "maintenance: $maintenance_parts"
                 [ -n "$other_keys" ] && echo "${other_keys# }"
-                auto_save_parts=""; other_keys=""; in_yaml=0
+                auto_save_parts=""; maintenance_parts=""; other_keys=""; in_yaml=0
             fi
             continue
         fi
@@ -104,6 +105,18 @@ compact_directives() {
                     continue
                 else
                     in_auto_save=0
+                fi
+            fi
+            # Handle maintenance: nested block
+            if [[ "$line" =~ ^maintenance: ]]; then in_maintenance=1; continue; fi
+            if [ $in_maintenance -eq 1 ]; then
+                if [[ "$line" =~ ^[[:space:]]+([-a-z]+):[[:space:]]*(.*) ]]; then
+                    local mkey="${BASH_REMATCH[1]}"
+                    mkey="${mkey%-lines}"
+                    maintenance_parts+="${mkey}=${BASH_REMATCH[2]} "
+                    continue
+                else
+                    in_maintenance=0
                 fi
             fi
             # Accumulate other config keys on one line
@@ -241,8 +254,33 @@ if [ -f "$BRANCH_DIR/meta.md" ]; then
     if [ -n "$ACTIVE_TASK" ] && [ "$ACTIVE_TASK" != "none" ]; then
         TASK_DIR="$BRANCH_DIR/tasks/$ACTIVE_TASK"
         emit_task_summary "$TASK_DIR" "$ACTIVE_TASK"
-        emit_ref "$TASK_DIR/knowledge.md"   "Active Task Knowledge"
+        if [ -d "$TASK_DIR/knowledge" ]; then
+            emit_ref "$TASK_DIR/knowledge/index.md" "Active Task Knowledge Index"
+        else
+            emit_ref "$TASK_DIR/knowledge.md"   "Active Task Knowledge"
+        fi
         emit_ref "$TASK_DIR/workflows.md"   "Active Task Workflows"
+    fi
+fi
+
+# --- Maintenance alerts ---
+if [ -n "${TASK_DIR:-}" ] && [ -d "${TASK_DIR:-}" ]; then
+    _max_s=$(sed -n 's/^[[:space:]]*status-max-lines:[[:space:]]*//p' \
+             "$PROJECT_DIR/directives.md" 2>/dev/null)
+    _max_k=$(sed -n 's/^[[:space:]]*task-knowledge-split-lines:[[:space:]]*//p' \
+             "$PROJECT_DIR/directives.md" 2>/dev/null)
+    # Check for compact-needed marker
+    if [ -f "$TASK_DIR/status.md" ] && head -1 "$TASK_DIR/status.md" | grep -q 'maintenance:.*compact needed'; then
+        echo "Maintenance: status.md marked for compaction. Compact before starting new work."
+    elif [ -f "$TASK_DIR/status.md" ]; then
+        _sl=$(wc -l < "$TASK_DIR/status.md")
+        [ "$_sl" -gt "${_max_s:-150}" ] 2>/dev/null && \
+            echo "Maintenance: status.md ${_sl} lines (limit ${_max_s:-150}). Compact before starting new work: move details to knowledge topics."
+    fi
+    if [ -f "$TASK_DIR/knowledge.md" ] && ! head -1 "$TASK_DIR/knowledge.md" | grep -q 'split into'; then
+        _kl=$(wc -l < "$TASK_DIR/knowledge.md")
+        [ "$_kl" -gt "${_max_k:-150}" ] 2>/dev/null && \
+            echo "Maintenance: knowledge.md ${_kl} lines (limit ${_max_k:-150}). Split into knowledge/ directory."
     fi
 fi
 
@@ -252,5 +290,5 @@ if [ -n "$ON_DEMAND_REFS" ]; then
 fi
 
 cat << 'RULES'
-Recall: save only [VERIFIED]/[OBSERVED] facts; hypotheses → status.md. Load topic files from indexes on demand.
+Recall: save only [VERIFIED]/[OBSERVED] facts; hypotheses → status.md. Load topic files from indexes on demand. Fix vague/stale/contradicted content on read.
 RULES
