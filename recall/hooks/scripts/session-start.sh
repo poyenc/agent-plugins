@@ -142,16 +142,18 @@ compact_meta() {
     [ -n "$parts" ] && echo "${parts% }"
 }
 
-# Collect a file path for on-demand loading (appends to ON_DEMAND_REFS)
-ON_DEMAND_REFS=""
-emit_ref() {
-    local filepath="$1" label="$2"
+# Collect file paths for session-start reading checklist
+PROJECT_READS=""
+BRANCH_READS=""
+TASK_READS=""
+collect_read() {
+    local filepath="$1" scope="$2"  # scope: project, branch, or task
     if [ -f "$filepath" ] && has_real_content "$filepath"; then
-        if [ -n "$ON_DEMAND_REFS" ]; then
-            ON_DEMAND_REFS="${ON_DEMAND_REFS}, ${label}=${filepath}"
-        else
-            ON_DEMAND_REFS="${label}=${filepath}"
-        fi
+        case "$scope" in
+            project) PROJECT_READS="${PROJECT_READS}   - ${filepath}\n" ;;
+            branch)  BRANCH_READS="${BRANCH_READS}   - ${filepath}\n" ;;
+            task)    TASK_READS="${TASK_READS}   - ${filepath}\n" ;;
+        esac
     fi
 }
 
@@ -195,8 +197,8 @@ echo ""
 # --- Project-level knowledge (directives and user inline, indexes as refs) ---
 emit_file "$PROJECT_DIR/directives.md"       "Project Directives ($PROJECT)" "compact_directives"
 emit_file "$PROJECT_DIR/user.md"             "User Profile ($PROJECT)" "strip_user_boilerplate"
-emit_ref  "$PROJECT_DIR/knowledge/index.md"  "Project Knowledge Index"
-emit_ref  "$PROJECT_DIR/workflows/index.md"  "Project Workflows Index"
+collect_read "$PROJECT_DIR/knowledge/index.md" "project"
+collect_read "$PROJECT_DIR/workflows/index.md" "project"
 
 # --- Stop here for detached HEAD or default branches ---
 if [ "$BRANCH" = "DETACHED" ]; then
@@ -237,10 +239,10 @@ SETUP
 fi
 
 emit_file "$BRANCH_DIR/meta.md"              "Branch: $BRANCH" "compact_meta"
-emit_ref  "$BRANCH_DIR/directives.md"        "Branch Directives"
-emit_ref  "$BRANCH_DIR/knowledge/index.md"   "Branch Knowledge Index"
-emit_ref  "$BRANCH_DIR/workflows/index.md"   "Branch Workflows Index"
-emit_ref  "$BRANCH_DIR/user.md"              "Branch User Notes"
+collect_read "$BRANCH_DIR/directives.md"      "branch"
+collect_read "$BRANCH_DIR/knowledge/index.md" "branch"
+collect_read "$BRANCH_DIR/workflows/index.md" "branch"
+collect_read "$BRANCH_DIR/user.md"            "branch"
 
 # --- Active task knowledge ---
 if [ -f "$BRANCH_DIR/meta.md" ]; then
@@ -255,11 +257,11 @@ if [ -f "$BRANCH_DIR/meta.md" ]; then
         TASK_DIR="$BRANCH_DIR/tasks/$ACTIVE_TASK"
         emit_task_summary "$TASK_DIR" "$ACTIVE_TASK"
         if [ -d "$TASK_DIR/knowledge" ]; then
-            emit_ref "$TASK_DIR/knowledge/index.md" "Active Task Knowledge Index"
+            collect_read "$TASK_DIR/knowledge/index.md" "task"
         else
-            emit_ref "$TASK_DIR/knowledge.md"   "Active Task Knowledge"
+            collect_read "$TASK_DIR/knowledge.md" "task"
         fi
-        emit_ref "$TASK_DIR/workflows.md"   "Active Task Workflows"
+        collect_read "$TASK_DIR/workflows.md" "task"
     fi
 fi
 
@@ -284,11 +286,32 @@ if [ -n "${TASK_DIR:-}" ] && [ -d "${TASK_DIR:-}" ]; then
     fi
 fi
 
-# --- On-demand file references (compact format) ---
-if [ -n "$ON_DEMAND_REFS" ]; then
-    echo "On-demand: $ON_DEMAND_REFS"
+# --- Session Start checklist ---
+_step=1
+_has_checklist=""
+if [ -n "$PROJECT_READS" ]; then
+    [ -z "$_has_checklist" ] && echo "## Session Start" && _has_checklist=1
+    echo "${_step}. Read project knowledge and workflows:"
+    printf "$PROJECT_READS"
+    _step=$((_step + 1))
+fi
+if [ -n "$BRANCH_READS" ]; then
+    [ -z "$_has_checklist" ] && echo "## Session Start" && _has_checklist=1
+    echo "${_step}. Read branch knowledge and workflows:"
+    printf "$BRANCH_READS"
+    _step=$((_step + 1))
+fi
+if [ -n "$TASK_READS" ]; then
+    [ -z "$_has_checklist" ] && echo "## Session Start" && _has_checklist=1
+    echo "${_step}. Read active task knowledge and workflows:"
+    printf "$TASK_READS"
+    _step=$((_step + 1))
+fi
+if [ -n "$_has_checklist" ]; then
+    echo "${_step}. From each index, read topic files relevant to the user's request (use the index file's directory as base path)."
+    echo ""
 fi
 
 cat << 'RULES'
-Recall: save only [VERIFIED]/[OBSERVED] facts; hypotheses → status.md. Load topic files from indexes on demand. Fix vague/stale/contradicted content on read.
+Recall-save: Save only [VERIFIED]/[OBSERVED] facts; hypotheses → status.md. Fix vague/stale/contradicted content on read.
 RULES
