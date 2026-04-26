@@ -292,19 +292,19 @@ _has_checklist=""
 if [ -n "$PROJECT_READS" ]; then
     [ -z "$_has_checklist" ] && echo "## Session Start" && _has_checklist=1
     echo "${_step}. Read project knowledge and workflows:"
-    printf "$PROJECT_READS"
+    printf '%b' "$PROJECT_READS"
     _step=$((_step + 1))
 fi
 if [ -n "$BRANCH_READS" ]; then
     [ -z "$_has_checklist" ] && echo "## Session Start" && _has_checklist=1
     echo "${_step}. Read branch knowledge and workflows:"
-    printf "$BRANCH_READS"
+    printf '%b' "$BRANCH_READS"
     _step=$((_step + 1))
 fi
 if [ -n "$TASK_READS" ]; then
     [ -z "$_has_checklist" ] && echo "## Session Start" && _has_checklist=1
     echo "${_step}. Read active task knowledge and workflows:"
-    printf "$TASK_READS"
+    printf '%b' "$TASK_READS"
     _step=$((_step + 1))
 fi
 if [ -n "$_has_checklist" ]; then
