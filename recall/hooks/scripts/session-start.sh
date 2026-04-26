@@ -197,8 +197,16 @@ echo ""
 # --- Project-level knowledge (directives and user inline, indexes as refs) ---
 emit_file "$PROJECT_DIR/directives.md"       "Project Directives ($PROJECT)" "compact_directives"
 emit_file "$PROJECT_DIR/user.md"             "User Profile ($PROJECT)" "strip_user_boilerplate"
-collect_read "$PROJECT_DIR/knowledge/index.md" "project"
-collect_read "$PROJECT_DIR/workflows/index.md" "project"
+if [ -d "$PROJECT_DIR/knowledge" ]; then
+    collect_read "$PROJECT_DIR/knowledge/index.md" "project"
+else
+    collect_read "$PROJECT_DIR/knowledge.md" "project"
+fi
+if [ -d "$PROJECT_DIR/workflows" ]; then
+    collect_read "$PROJECT_DIR/workflows/index.md" "project"
+else
+    collect_read "$PROJECT_DIR/workflows.md" "project"
+fi
 
 # --- Stop here for detached HEAD or default branches ---
 if [ "$BRANCH" = "DETACHED" ]; then
@@ -240,8 +248,16 @@ fi
 
 emit_file "$BRANCH_DIR/meta.md"              "Branch: $BRANCH" "compact_meta"
 collect_read "$BRANCH_DIR/directives.md"      "branch"
-collect_read "$BRANCH_DIR/knowledge/index.md" "branch"
-collect_read "$BRANCH_DIR/workflows/index.md" "branch"
+if [ -d "$BRANCH_DIR/knowledge" ]; then
+    collect_read "$BRANCH_DIR/knowledge/index.md" "branch"
+else
+    collect_read "$BRANCH_DIR/knowledge.md" "branch"
+fi
+if [ -d "$BRANCH_DIR/workflows" ]; then
+    collect_read "$BRANCH_DIR/workflows/index.md" "branch"
+else
+    collect_read "$BRANCH_DIR/workflows.md" "branch"
+fi
 collect_read "$BRANCH_DIR/user.md"            "branch"
 
 # --- Active task knowledge ---
@@ -261,7 +277,11 @@ if [ -f "$BRANCH_DIR/meta.md" ]; then
         else
             collect_read "$TASK_DIR/knowledge.md" "task"
         fi
-        collect_read "$TASK_DIR/workflows.md" "task"
+        if [ -d "$TASK_DIR/workflows" ]; then
+            collect_read "$TASK_DIR/workflows/index.md" "task"
+        else
+            collect_read "$TASK_DIR/workflows.md" "task"
+        fi
     fi
 fi
 
