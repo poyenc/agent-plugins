@@ -14,7 +14,7 @@ Show an overview of all tracked branches.
 3. For each branch directory, read meta.md and extract: branch name, status, mode, active task, HEAD, created date.
 4. Check git for each branch:
    - Does the branch still exist locally? (`git branch --list <name>`)
-   - Is it merged into the default branch? (use `${CLAUDE_PLUGIN_ROOT}/scripts/detect-merged.sh`)
+   - Is it merged into the default branch? (use `${CLAUDE_PLUGIN_ROOT}/scripts/detect-merged.sh --project-dir <project-dir> --target-branch <default-branch>`)
    - Last commit date? (`git log -1 --format='%ci' <name>`)
 5. Classify each branch: active, stale (no commits in N days per config), merged (unpromoted), archived.
 6. List archived branches from `<project>/archive/` (count only).

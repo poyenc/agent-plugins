@@ -44,7 +44,11 @@ test-prefs: <ask user or omit>
 ```
 Only include fields the user provides. Omit any field they don't specify.
 
-5. If not on a default branch, assess branch type from name pattern (lightweight: hotfix/*, fix/*, typo/*, docs/*; full: everything else), then create the branch directory using `${CLAUDE_PLUGIN_ROOT}/scripts/create-branch-dir.sh` with the appropriate `--mode` flag. For full branches, ask "What's the epic/goal for this branch?"
+5. If not on a default branch, assess branch type from name pattern (lightweight: hotfix/*, fix/*, typo/*, docs/*; full: everything else), then create the branch directory:
+   ```
+   ${CLAUDE_PLUGIN_ROOT}/scripts/create-branch-dir.sh --project-dir <project-dir> --branch <branch-name> --parent <parent-branch> --mode <full|lightweight>
+   ```
+   For full branches, ask "What's the epic/goal for this branch?"
 6. Report: "Knowledge base initialized at <path>. I'll automatically track verified findings across branches and promote them when you merge. Run /recall-help for commands."
 
 ### Size Maintenance

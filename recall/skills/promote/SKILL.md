@@ -16,7 +16,7 @@ Promote branch knowledge to project level.
    - Resolve the branch directory (sanitize name, find in branches/).
    - Proceed to step 3.
 2. If no argument:
-   - Run `${CLAUDE_PLUGIN_ROOT}/scripts/detect-merged.sh` to find merged branches.
+   - Run `${CLAUDE_PLUGIN_ROOT}/scripts/detect-merged.sh --project-dir <project-dir> --target-branch <default-branch>` to find merged branches.
    - If none found: "No merged branches with unpromoted knowledge."
    - If multiple found: list them and process each.
 3. **For each branch to promote:**
