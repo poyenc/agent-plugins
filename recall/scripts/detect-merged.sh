@@ -3,7 +3,10 @@
 # Usage: detect-merged.sh --project-dir DIR --target-branch BRANCH
 # Output: one branch name per line (original names, not sanitized)
 
-set -euo pipefail
+# Note: -u (nounset) omitted — bash 5.x treats empty associative array
+# expansion (${!arr[@]}, ${#arr[@]}) as unbound, which breaks the
+# TRACKED_BRANCHES and MERGED array handling below.
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
