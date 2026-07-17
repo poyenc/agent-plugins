@@ -82,6 +82,18 @@ Ask naturally (*"what knowledge do we have?"*) or use commands:
 - `/recall-changelog` — recent changes across all knowledge files
 - `/branch-status` — overview of all tracked branches
 
+### "The recall topics have drifted — tidy them up"
+
+Over time, topics accumulate: names drift from their content, two topics start saying the same thing, a file grows past the size limit, the index falls out of sync. Say *"re-org the recall topics, make them coherent"* (or *"clean up the knowledge index"*) and the agent runs `/recall-reorg`.
+
+It analyzes the current branch overlay read-only first (a scripted inventory flags identity/index/size problems; a delegated pass handles the judgment calls), then presents a plan grouped by category — renames, merges, size fixes, extracted general topics, index rewrite — and applies each category only after you confirm. A backup is taken before any write.
+
+Two behaviors worth knowing:
+- **Compact before split.** An oversized topic is first trimmed of disproven content and losslessly compacted; it's only split into sibling topics as a last resort.
+- **Deliberately-kept records are protected.** A falsified hypothesis retained on purpose (*"kept as a falsified-lead record so it is not re-hunted"*) reads as stale but is load-bearing — it is preserved, not deleted.
+
+Extracting a shared principle into its own topic is *within a level*; moving branch-general knowledge *up* to project level is a separate operation — use `/promote` for that.
+
 ### "This approach isn't working"
 
 Say *"this isn't working, let's abandon this task"* or use commands:
@@ -127,6 +139,7 @@ Knowledge is organized in three layers: **project > branch > task**. Each layer 
 | `/branch-status` | Overview of all branches and their knowledge |
 | `/branch-abandon` | Abandon current branch, salvage useful knowledge |
 | `/promote [branch]` | Promote branch knowledge to project level |
+| `/recall-reorg` | Re-organize topics into best shape: unify names/frontmatter, merge duplicates, compact oversized files, extract shared principles, rewrite the index (defaults to current branch overlay) |
 | `/task-create <name>` | Create a new task under current branch |
 | `/task-switch <name>` | Switch to a different task (fuzzy matching) |
 | `/task-complete` | Mark task done, review knowledge for promotion |

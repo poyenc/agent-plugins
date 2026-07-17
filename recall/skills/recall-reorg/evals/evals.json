@@ -1,0 +1,49 @@
+{
+  "skill_name": "recall-reorg",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "re-org the recall topics, make them coherent and extract general topic out as a separated topic",
+      "expected_output": "Skill triggers, runs a read-only analysis of the current branch overlay first (scripted inventory + delegated judgment), presents a per-category plan (identity/index/size/extraction/promote-candidates), and does not write anything before category-by-category confirmation. Recognizes deliberately-kept falsified-lead records as do-not-delete.",
+      "files": [],
+      "expectations": [
+        "Defaults to branch scope (current branch overlay), not the whole project or all projects",
+        "Runs a read-only analysis before proposing any change (no writes in a dry run)",
+        "Uses or references the scripted inventory (reorg-inventory.sh) rather than reading all 56 files blindly",
+        "Presents the plan grouped into categories (identity / index / size / merge-extract / promote-candidates)",
+        "Proposes extracting a shared/general principle into its own topic with cross-links",
+        "Identifies deliberately-kept falsified-lead records and does NOT propose deleting them",
+        "States that a snapshot backup would be taken before execution",
+        "Flags branch topics that look project-general as promote-candidates deferred to /promote"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "the recall knowledge index is a mess now, some topics are huge and I think a few say the same thing. clean it up",
+      "expected_output": "Skill triggers on an implicit cleanup request. Identifies oversized topics and routes them compact-before-split; identifies overlapping/duplicate topics as merge candidates; rewrites the index coherently. Snapshots a backup before any write and gates writes per category.",
+      "files": [],
+      "expectations": [
+        "Triggers on the implicit cleanup phrasing without the literal word 'reorg'",
+        "Identifies the oversized topic files (over the 200-line limit)",
+        "Routes oversized files compact-before-split (does not jump straight to splitting)",
+        "Identifies overlapping/duplicate topics as merge candidates",
+        "Checks the index against the files both ways (dead links and missing entries)",
+        "States that a snapshot backup would be taken before execution",
+        "Presents the plan per category rather than applying everything at once"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "one of my recall topic files grew past the size limit — can you get it back under without losing anything?",
+      "expected_output": "Skill triggers and applies the size policy: delete disproven/stale content first (but NOT deliberately-kept falsified-lead records), then lossless compaction, and only split as a last resort. Reports lines saved and confirms the file is under the limit.",
+      "files": [],
+      "expectations": [
+        "Triggers on a size-recovery request",
+        "Applies the compact-before-split order: delete-stale, then lossless compact, then split only as last resort",
+        "Distinguishes deliberately-kept falsified-lead records from deletable stale content",
+        "Preserves all load-bearing facts (the 'without losing anything' constraint)",
+        "Identifies the specific oversized file(s) and estimates lines saved / confirms under limit"
+      ]
+    }
+  ]
+}
