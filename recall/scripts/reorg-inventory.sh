@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 # scripts/reorg-inventory.sh — mechanical inventory for /recall-reorg (step 3a).
-# Read-only. Parses every topic in a knowledge/ or workflows/ dir and reports the
+# Read-only. Parses every topic in a topics/ dir and reports the
 # facts that need no judgment: identity (filename vs frontmatter name vs H1 title),
 # metadata.type, line count, frontmatter validity, index membership (both ways),
 # oversize, and a staleness-marker grep. Feed the output to the analysis step so a
 # subagent only has to read the handful of files that are actually flagged.
 #
-# Usage: reorg-inventory.sh <knowledge-dir> [topic-max-lines]
-#   <knowledge-dir>  dir containing topic *.md files and an index.md
+# Usage: reorg-inventory.sh <topics-dir> [topic-max-lines]
+#   <topics-dir>  dir containing topic *.md files and an index.md
 #   [topic-max-lines] size limit (default 200)
 
 set -euo pipefail
 
-DIR="${1:?usage: reorg-inventory.sh <knowledge-dir> [topic-max-lines]}"
+DIR="${1:?usage: reorg-inventory.sh <topics-dir> [topic-max-lines]}"
 LIMIT="${2:-200}"
 DIR="${DIR%/}"
 
