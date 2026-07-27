@@ -25,7 +25,7 @@ if [ -f "$TASK_DIR/status.md" ]; then
     exit 0
 fi
 
-mkdir -p "$TASK_DIR"
+mkdir -p "$TASK_DIR/topics"
 
 cat > "$TASK_DIR/status.md" << EOF
 **Status:** active
@@ -34,5 +34,7 @@ cat > "$TASK_DIR/status.md" << EOF
 ## Goal
 $GOAL
 EOF
+
+touch "$TASK_DIR/topics/index.md"
 
 write_meta_field "$BRANCH_DIR/meta.md" "Active Task" "$TASK"
