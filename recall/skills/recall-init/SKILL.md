@@ -14,12 +14,13 @@ Set up the recall system for the current project.
 3. Create the project directory: `<storage-root>/<project>/`
 4. Create these files:
 
-**directives.md** — project config and rules (no markdown headings, no YAML fences):
+**settings.yaml** — project config, pure YAML, no prose:
 ```
-auto-save.auto: [hardware findings, build errors, debugging root causes, API behaviors]
-auto-save.ask: [coding conventions, architecture decisions]
-auto-save.never: [temporary workarounds, debugging session logs]
-auto-save.default: auto
+auto-save:
+  auto: [hardware findings, build errors, debugging root causes, API behaviors]
+  ask: [coding conventions, architecture decisions]
+  never: [temporary workarounds, debugging session logs]
+  default: auto
 promotion: auto
 stale-branch-days: 30
 default-branch: develop
@@ -28,21 +29,14 @@ maintenance:
   status-max-lines: 150
   status-final-lines: 100
   topic-max-lines: 200
-  task-knowledge-split-lines: 150
 ```
-Add project-specific rules as bullet points after the config block. Only add rules the user requests — no placeholders.
+Ask the user for environment values and add them as additional top-level keys (only fields they provide — omit the rest):
+```
+WORKSPACE: <ask user>
+CONTAINER: <ask user or omit>
+```
 
-**knowledge/index.md** — empty file (topics added as discovered)
-**workflows/index.md** — empty file (workflows added as discovered)
-**user.md** — key-value pairs only, no headings or boilerplate:
-```
-CONTAINER=<ask user>
-WORKSPACE=<ask user>
-editor: <ask user or omit>
-commit-style: <ask user or omit>
-test-prefs: <ask user or omit>
-```
-Only include fields the user provides. Omit any field they don't specify.
+**topics/index.md** — empty file (topics added as discovered; no separate workflows index — a workflow-type finding is just another topic in the same file, grouped by whichever thematic `## ` header fits)
 
 5. If not on a default branch, assess branch type from name pattern (lightweight: hotfix/*, fix/*, typo/*, docs/*; full: everything else), then create the branch directory:
    ```
@@ -53,10 +47,9 @@ Only include fields the user provides. Omit any field they don't specify.
 
 ### Size Maintenance
 
-When writing to status.md or knowledge files, check line counts against maintenance limits from directives.md:
+When writing to status.md or topic files, check line counts against maintenance limits from settings.yaml:
 - **status.md over status-max-lines**: Insert `<!-- maintenance: compact needed -->` at line 1. Do not compact now.
 - **Topic file over topic-max-lines**: Split `###` subsections into sibling files, update index.
-- **Task knowledge.md over task-knowledge-split-lines**: Split into `knowledge/` directory with per-topic files + `index.md`.
 
 Hard compaction (rewriting status.md to compact format) happens only at lifecycle events (`/task-complete`, `/task-abandon`) or when session-start detects an oversized file or the compact-needed marker.
 
