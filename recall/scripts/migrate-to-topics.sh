@@ -53,8 +53,10 @@ migrate_level_dir() {
             base="$(basename "$f")"
             if [ "$base" = "index.md" ]; then
                 if [ -s "$f" ]; then
-                    echo "  appending $f content into $td/index.md"
-                    if [ "$DRY_RUN" != "--dry-run" ]; then
+                    if [ "$DRY_RUN" = "--dry-run" ]; then
+                        echo "[dry-run] would append $f content into $td/index.md"
+                    else
+                        echo "  appending $f content into $td/index.md"
                         { echo ""; cat "$f"; } >> "$td/index.md"
                     fi
                 fi
@@ -97,8 +99,9 @@ if dry_run == "--dry-run":
     if prose_lines:
         print(f"[dry-run] would append {len(prose_lines)} prose lines to {level_dir}/topics/_migration-needs-review.md")
 else:
-    with open(sf, 'a') as out:
-        out.write('\n'.join(yaml_lines).rstrip('\n') + '\n')
+    if yaml_lines:
+        with open(sf, 'a') as out:
+            out.write('\n'.join(yaml_lines).rstrip('\n') + '\n')
     if prose_lines:
         staging = f"{level_dir}/topics/_migration-needs-review.md"
         with open(staging, 'a') as out:
