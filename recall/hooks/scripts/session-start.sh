@@ -37,96 +37,6 @@ emit_file() {
     fi
 }
 
-# Collapse user.md to inline format: env: K=V K=V | prefs: a, b, c
-strip_user_boilerplate() {
-    local in_code=0 env_vars="" prefs="" notes="" section=""
-    while IFS= read -r line; do
-        # Track sections
-        if [[ "$line" =~ ^##[[:space:]]+(.*) ]]; then
-            section="${BASH_REMATCH[1],,}"; continue
-        fi
-        [[ "$line" =~ ^#\  ]] && continue
-        [[ "$line" =~ ^Copy\ this\ file ]] && continue
-        [[ "$line" =~ ^Add\ any\ personal ]] && continue
-        if [[ "$line" =~ ^\`\`\` ]]; then
-            in_code=$(( 1 - in_code )); continue
-        fi
-        [[ -z "$line" ]] && continue
-        case "$section" in
-            environment*)
-                # Collect KEY=VALUE assignments, skip bash comments
-                if [[ "$line" =~ ^[A-Z_]+= ]]; then
-                    env_vars+="${line} "
-                fi
-                ;;
-            preference*)
-                # Strip leading "- " and collect
-                local pref="${line#- }"
-                prefs+="${prefs:+, }${pref}"
-                ;;
-            note*)
-                notes+="${notes:+; }${line#- }"
-                ;;
-            *)
-                # Unknown section — pass through as prefs
-                if [[ "$line" =~ ^-\  ]]; then
-                    local item="${line#- }"
-                    prefs+="${prefs:+, }${item}"
-                fi
-                ;;
-        esac
-    done
-    [ -n "$env_vars" ] && echo "env: ${env_vars% }"
-    [ -n "$prefs" ] && echo "prefs: $prefs"
-    [ -n "$notes" ] && echo "notes: $notes"
-}
-
-# Collapse YAML config block: auto-save → single line, other keys → single line, strip headings/fences/blanks
-compact_directives() {
-    local in_yaml=0 in_auto_save=0 auto_save_parts="" other_keys="" in_maintenance=0 maintenance_parts=""
-    while IFS= read -r line; do
-        [[ "$line" =~ ^#+\  ]] && continue
-        [[ -z "$line" ]] && continue
-        if [[ "$line" =~ ^\`\`\` ]]; then
-            if [ $in_yaml -eq 0 ]; then in_yaml=1; else
-                # End of YAML — flush accumulated config
-                [ -n "$auto_save_parts" ] && echo "auto-save: $auto_save_parts"
-                [ -n "$maintenance_parts" ] && echo "maintenance: $maintenance_parts"
-                [ -n "$other_keys" ] && echo "${other_keys# }"
-                auto_save_parts=""; maintenance_parts=""; other_keys=""; in_yaml=0
-            fi
-            continue
-        fi
-        if [ $in_yaml -eq 1 ]; then
-            if [[ "$line" =~ ^auto-save: ]]; then in_auto_save=1; continue; fi
-            if [ $in_auto_save -eq 1 ]; then
-                if [[ "$line" =~ ^[[:space:]]+(auto|ask|never|default):[[:space:]]*(.*) ]]; then
-                    auto_save_parts+="${BASH_REMATCH[1]}=${BASH_REMATCH[2]} "
-                    continue
-                else
-                    in_auto_save=0
-                fi
-            fi
-            # Handle maintenance: nested block
-            if [[ "$line" =~ ^maintenance: ]]; then in_maintenance=1; continue; fi
-            if [ $in_maintenance -eq 1 ]; then
-                if [[ "$line" =~ ^[[:space:]]+([-a-z]+):[[:space:]]*(.*) ]]; then
-                    local mkey="${BASH_REMATCH[1]}"
-                    mkey="${mkey%-lines}"
-                    maintenance_parts+="${mkey}=${BASH_REMATCH[2]} "
-                    continue
-                else
-                    in_maintenance=0
-                fi
-            fi
-            # Accumulate other config keys on one line
-            other_keys+=" $line"
-        else
-            echo "$line"
-        fi
-    done
-}
-
 # Collapse meta.md to a single-line compact format
 compact_meta() {
     local parts=""
@@ -140,26 +50,6 @@ compact_meta() {
         fi
     done
     [ -n "$parts" ] && echo "${parts% }"
-}
-
-# Collect file paths for session-start reading checklist
-PROJECT_READS=""
-BRANCH_READS=""
-TASK_READS=""
-collect_read() {
-    local filepath="$1" scope="$2"  # scope: project, branch, or task
-    if [ -f "$filepath" ] && has_real_content "$filepath"; then
-        case "$scope" in
-            project) PROJECT_READS="${PROJECT_READS}   - ${filepath}\n" ;;
-            branch)  BRANCH_READS="${BRANCH_READS}   - ${filepath}\n" ;;
-            task)    TASK_READS="${TASK_READS}   - ${filepath}\n" ;;
-        esac
-    fi
-}
-
-# Check if file has content beyond headings, HTML comments, and whitespace
-has_real_content() {
-    grep -qP '^(?!#|\s*$|<!--)' "$1" 2>/dev/null
 }
 
 # Emit task as 2 lines: header with status, goal on next line
@@ -194,19 +84,8 @@ echo "RECALL_PROJECT=$PROJECT"
 echo "RECALL_ROOT=$ROOT"
 echo ""
 
-# --- Project-level knowledge (directives and user inline, indexes as refs) ---
-emit_file "$PROJECT_DIR/directives.md"       "Project Directives ($PROJECT)" "compact_directives"
-emit_file "$PROJECT_DIR/user.md"             "User Profile ($PROJECT)" "strip_user_boilerplate"
-if [ -d "$PROJECT_DIR/knowledge" ]; then
-    collect_read "$PROJECT_DIR/knowledge/index.md" "project"
-else
-    collect_read "$PROJECT_DIR/knowledge.md" "project"
-fi
-if [ -d "$PROJECT_DIR/workflows" ]; then
-    collect_read "$PROJECT_DIR/workflows/index.md" "project"
-else
-    collect_read "$PROJECT_DIR/workflows.md" "project"
-fi
+# --- Project-level topics (inlined in full, not a path checklist) ---
+emit_file "$PROJECT_DIR/topics/index.md" "Project Knowledge ($PROJECT)"
 
 # --- Stop here for detached HEAD or default branches ---
 if [ "$BRANCH" = "DETACHED" ]; then
@@ -229,7 +108,7 @@ if [ "$IS_DEFAULT" = "yes" ]; then
     exit 0
 fi
 
-# --- Branch-level knowledge ---
+# --- Branch-level topics ---
 SANITIZED="$(echo "$BRANCH" | sed 's|/|--|g')"
 BRANCH_DIR="$PROJECT_DIR/branches/$SANITIZED"
 
@@ -246,21 +125,10 @@ SETUP
     exit 0
 fi
 
-emit_file "$BRANCH_DIR/meta.md"              "Branch: $BRANCH" "compact_meta"
-collect_read "$BRANCH_DIR/directives.md"      "branch"
-if [ -d "$BRANCH_DIR/knowledge" ]; then
-    collect_read "$BRANCH_DIR/knowledge/index.md" "branch"
-else
-    collect_read "$BRANCH_DIR/knowledge.md" "branch"
-fi
-if [ -d "$BRANCH_DIR/workflows" ]; then
-    collect_read "$BRANCH_DIR/workflows/index.md" "branch"
-else
-    collect_read "$BRANCH_DIR/workflows.md" "branch"
-fi
-collect_read "$BRANCH_DIR/user.md"            "branch"
+emit_file "$BRANCH_DIR/meta.md" "Branch: $BRANCH" "compact_meta"
+emit_file "$BRANCH_DIR/topics/index.md" "Branch Knowledge ($BRANCH)"
 
-# --- Active task knowledge ---
+# --- Active task topics ---
 if [ -f "$BRANCH_DIR/meta.md" ]; then
     ACTIVE_TASK=""
     if [ -f "$LIB" ]; then
@@ -272,25 +140,14 @@ if [ -f "$BRANCH_DIR/meta.md" ]; then
     if [ -n "$ACTIVE_TASK" ] && [ "$ACTIVE_TASK" != "none" ]; then
         TASK_DIR="$BRANCH_DIR/tasks/$ACTIVE_TASK"
         emit_task_summary "$TASK_DIR" "$ACTIVE_TASK"
-        if [ -d "$TASK_DIR/knowledge" ]; then
-            collect_read "$TASK_DIR/knowledge/index.md" "task"
-        else
-            collect_read "$TASK_DIR/knowledge.md" "task"
-        fi
-        if [ -d "$TASK_DIR/workflows" ]; then
-            collect_read "$TASK_DIR/workflows/index.md" "task"
-        else
-            collect_read "$TASK_DIR/workflows.md" "task"
-        fi
+        emit_file "$TASK_DIR/topics/index.md" "Task Knowledge ($ACTIVE_TASK)"
     fi
 fi
 
-# --- Maintenance alerts ---
+# --- Maintenance alerts (settings.yaml read on-demand here, not injected) ---
 if [ -n "${TASK_DIR:-}" ] && [ -d "${TASK_DIR:-}" ]; then
     _max_s=$(sed -n 's/^[[:space:]]*status-max-lines:[[:space:]]*//p' \
-             "$PROJECT_DIR/directives.md" 2>/dev/null)
-    _max_k=$(sed -n 's/^[[:space:]]*task-knowledge-split-lines:[[:space:]]*//p' \
-             "$PROJECT_DIR/directives.md" 2>/dev/null)
+             "$PROJECT_DIR/settings.yaml" 2>/dev/null)
     # Check for compact-needed marker
     if [ -f "$TASK_DIR/status.md" ] && head -1 "$TASK_DIR/status.md" | grep -q 'maintenance:.*compact needed'; then
         echo "Maintenance: status.md marked for compaction. Compact before starting new work."
@@ -299,37 +156,6 @@ if [ -n "${TASK_DIR:-}" ] && [ -d "${TASK_DIR:-}" ]; then
         [ "$_sl" -gt "${_max_s:-150}" ] 2>/dev/null && \
             echo "Maintenance: status.md ${_sl} lines (limit ${_max_s:-150}). Compact before starting new work: move details to knowledge topics."
     fi
-    if [ -f "$TASK_DIR/knowledge.md" ] && ! head -1 "$TASK_DIR/knowledge.md" | grep -q 'split into'; then
-        _kl=$(wc -l < "$TASK_DIR/knowledge.md")
-        [ "$_kl" -gt "${_max_k:-150}" ] 2>/dev/null && \
-            echo "Maintenance: knowledge.md ${_kl} lines (limit ${_max_k:-150}). Split into knowledge/ directory."
-    fi
-fi
-
-# --- Session Start checklist ---
-_step=1
-_has_checklist=""
-if [ -n "$PROJECT_READS" ]; then
-    [ -z "$_has_checklist" ] && echo "## Session Start" && _has_checklist=1
-    echo "${_step}. Read project knowledge and workflows:"
-    printf '%b' "$PROJECT_READS"
-    _step=$((_step + 1))
-fi
-if [ -n "$BRANCH_READS" ]; then
-    [ -z "$_has_checklist" ] && echo "## Session Start" && _has_checklist=1
-    echo "${_step}. Read branch knowledge and workflows:"
-    printf '%b' "$BRANCH_READS"
-    _step=$((_step + 1))
-fi
-if [ -n "$TASK_READS" ]; then
-    [ -z "$_has_checklist" ] && echo "## Session Start" && _has_checklist=1
-    echo "${_step}. Read active task knowledge and workflows:"
-    printf '%b' "$TASK_READS"
-    _step=$((_step + 1))
-fi
-if [ -n "$_has_checklist" ]; then
-    echo "${_step}. From each index, read topic files relevant to the user's request (use the index file's directory as base path)."
-    echo ""
 fi
 
 cat << 'RULES'

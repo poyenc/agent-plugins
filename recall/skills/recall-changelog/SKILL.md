@@ -13,7 +13,7 @@ Show recent knowledge changes.
 ## Steps
 
 1. Resolve project directory.
-2. Find all knowledge and workflow files modified in the last N days:
+2. Find all topic files modified in the last N days:
    ```bash
    find <project>/ -name "*.md" -mtime -<days> -not -path "*/archive/*" | sort -t/ -k3
    ```

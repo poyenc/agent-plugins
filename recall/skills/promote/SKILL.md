@@ -20,14 +20,14 @@ Promote branch knowledge to project level.
    - If none found: "No merged branches with unpromoted knowledge."
    - If multiple found: list them and process each.
 3. **For each branch to promote:**
-   a. Read all knowledge/ and workflows/ topic files from the branch overlay.
+   a. Read all topic files from the branch overlay's `topics/`.
    b. For each finding, classify:
       - **Promote** (general): architectural patterns, hardware behavior, debugging techniques, performance patterns, API insights, conventions
       - **Archive** (branch-specific): branch commit hashes, WIP status, temporary workarounds, task configs, unverified hypotheses
    c. For promotable content:
       - If a matching project-level topic exists → append to it
-      - If no matching topic → create new topic file, add to project index.md
-      - After appending, if the topic file exceeds maintenance.topic-max-lines (from directives.md), split ### subsections into sibling topic files and update the project index.md.
+      - If no matching topic → create new topic file, add to project `topics/index.md`
+      - After appending, if the topic file exceeds maintenance.topic-max-lines (from the project's settings.yaml), split ### subsections into sibling topic files and update the project `topics/index.md`.
    d. Move `branches/<sanitized>/` to `archive/<sanitized>/`
    e. Update archive meta.md with `**Status:** promoted` and date
    f. Report: "Promoted <N> findings from '<branch>' to project level. Branch archived."

@@ -12,7 +12,7 @@ Show the current recall state.
 1. Resolve storage root and project directory.
 2. Get current branch: `git branch --show-current`
 3. If on a default branch:
-   - Show project-level stats: topic count in knowledge/ and workflows/, directives summary.
+   - Show project-level stats: topic count in topics/, settings.yaml summary.
    - Run `${CLAUDE_PLUGIN_ROOT}/scripts/detect-merged.sh --project-dir <project-dir> --target-branch <default-branch>` to list branches with unpromoted knowledge.
    - Check for stale branches (meta.md with old HEAD dates vs configured threshold).
 4. If on a feature branch:
@@ -28,7 +28,6 @@ Recall Status
   Branch:   <branch> (parent: <parent>, mode: <mode>)
   Task:     <active-task> (status: <status>)
   Topics:   <N> project + <M> branch overlay
-  Workflows: <N> project + <M> branch overlay
   Config:   auto-save: <default>, confidence: <min-level>
   Alerts:   <stale branches, merged branches needing promotion>
 ```

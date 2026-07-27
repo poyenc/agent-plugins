@@ -1,6 +1,6 @@
 ---
 name: recall-reorg
-description: Re-organize recall knowledge/workflow topics into their best shape — unify topic filenames, frontmatter, and titles, merge overlapping topics, compact stale content, extract shared general principles into their own topics, and rewrite the index coherently. Use whenever the user says "re-org the recall topics", "clean up recall", "make the recall coherent", "extract a general topic", "tidy the knowledge index", or when recall files have drifted (mismatched names, duplicated content, oversized files, a stale index). Keeps recall well-managed as a whole rather than fixing one file at a time.
+description: Re-organize recall topics into their best shape — unify topic filenames, frontmatter, and titles, merge overlapping topics, compact stale content, extract shared general principles into their own topics, and rewrite the index coherently. Use whenever the user says "re-org the recall topics", "clean up recall", "make the recall coherent", "extract a general topic", "tidy the knowledge index", or when recall files have drifted (mismatched names, duplicated content, oversized files, a stale index). Keeps recall well-managed as a whole rather than fixing one file at a time.
 ---
 
 # /recall-reorg [--project|--branch|--all]
@@ -14,10 +14,9 @@ principles or index drift — those are only visible when every topic is read
 together. So the skill always analyzes the full scope before proposing changes.
 
 ## Arguments
-- (default): the current branch's overlay only (`branches/<slug>/knowledge/` +
-  `workflows/`). Smallest, safest scope — the files you're actively growing.
-- `--project`: project level only (`knowledge/` + `workflows/`); leave branch
-  overlays untouched.
+- (default): the current branch's overlay only (`branches/<slug>/topics/`).
+  Smallest, safest scope — the files you're actively growing.
+- `--project`: project level only (`topics/`); leave branch overlays untouched.
 - `--project-and-branch`: project level **and** the current branch's overlay together.
 - `--all`: every project under the recall root. Broad and slow — confirm first.
 
@@ -42,7 +41,7 @@ should move toward them:
    `## ` headers, each entry `[name](file.md) — one-line hook`. No entry points at
    a missing file; no file is missing from the index. Group headers reflect how the
    topics actually cluster, not historical accident.
-5. **Within size limits.** No topic exceeds `topic-max-lines` (from `directives.md`,
+5. **Within size limits.** No topic exceeds `topic-max-lines` (from `settings.yaml`,
    default 200) — but reach that by compaction first, not reflexive splitting.
 
 ## Size policy: compact before you split
@@ -94,9 +93,9 @@ don't move them here: flag them as promote-candidates and tell the user to run
 1. **Resolve scope.** Resolve storage root and project dir (see
    `${CLAUDE_PLUGIN_ROOT}/scripts/lib.sh`). Determine the target directories from
    the argument; the default is the current branch's overlay
-   (`branches/<sanitized-branch>/knowledge/` + `workflows/`). If the default scope
+   (`branches/<sanitized-branch>/topics/`). If the default scope
    is requested but you're on a default branch (main/master/develop) with no branch
-   overlay, say so and suggest `--project`. Read `directives.md` for
+   overlay, say so and suggest `--project`. Read `settings.yaml` for
    `topic-max-lines` and `confidence-min`.
 
 2. **Snapshot first.** This edits many files at once, so make it reversible: tar the
@@ -109,8 +108,8 @@ don't move them here: flag them as promote-candidates and tell the user to run
    Instead, split the work:
 
    **3a. Scripted inventory (cheap, deterministic, no LLM judgment).** Run
-   `${CLAUDE_PLUGIN_ROOT}/scripts/reorg-inventory.sh <knowledge-dir> <topic-max-lines>`
-   for each target dir (the `knowledge/` and `workflows/` of every scope in play). It
+   `${CLAUDE_PLUGIN_ROOT}/scripts/reorg-inventory.sh <topics-dir> <topic-max-lines>`
+   for the `topics/` dir of every scope in play. It
    parses every topic and reports the mechanical facts: per file — filename vs
    frontmatter `name`, H1 presence, `metadata.type`, line count, frontmatter
    validity, and index membership; then index drift both ways (dead links, files

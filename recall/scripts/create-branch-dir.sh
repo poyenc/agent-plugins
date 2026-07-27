@@ -44,13 +44,10 @@ cat > "$BRANCH_DIR/meta.md" << EOF
 EOF
 
 if [ "$MODE" = "full" ]; then
-    touch "$BRANCH_DIR/directives.md"
+    touch "$BRANCH_DIR/settings.yaml"
 
-    mkdir -p "$BRANCH_DIR/knowledge"
-    touch "$BRANCH_DIR/knowledge/index.md"
-
-    mkdir -p "$BRANCH_DIR/workflows"
-    touch "$BRANCH_DIR/workflows/index.md"
+    mkdir -p "$BRANCH_DIR/topics"
+    touch "$BRANCH_DIR/topics/index.md"
 
     mkdir -p "$BRANCH_DIR/tasks"
 fi

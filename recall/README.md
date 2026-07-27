@@ -62,7 +62,7 @@ This saves your current task's state and loads the target task's context. Fuzzy 
 /task-create optimize-gemm
 ```
 
-Each task gets its own `status.md` (hypotheses, next steps) and `knowledge.md` (verified findings). When you're done, say *"this task is done"* or *"abandon this task"*:
+Each task gets its own `status.md` (hypotheses, next steps) and a `topics/` directory (verified findings). When you're done, say *"this task is done"* or *"abandon this task"*:
 
 - `/task-complete` — marks it done, reviews findings for promotion to branch level
 - `/task-abandon` — captures what was learned, archives the rest
@@ -109,20 +109,26 @@ Knowledge is organized in three layers: **project > branch > task**. Each layer 
 
 ```
 ~/.local/share/claude/recall/<project>/
-  directives.md           # agent behavior rules + configuration
-  knowledge/              # project-level topics (loaded conditionally)
-  workflows/              # project-level procedures (loaded conditionally)
-  user.md                 # personal preferences (container, worktree, etc.)
+  settings.yaml           # machine-parsed config (auto-save rules, size limits, env values)
+  topics/                 # project-level topics — facts, workflows, conventions, all uniform
+    index.md              # single index, grouped by thematic headers
   branches/
     <branch>/
       meta.md             # branch metadata, active task, parent info
-      knowledge/          # branch overlay (only NEW findings)
-      workflows/          # branch overlay (only NEW procedures)
+      settings.yaml       # branch-level config overrides (rarely used)
+      topics/             # branch overlay (only NEW findings)
+        index.md
       tasks/
         <task>/
           status.md       # task progress, hypotheses, next steps
-          knowledge.md    # task-specific findings
+          topics/         # task-specific findings
+            index.md
 ```
+
+Topics are not split by type (no separate "workflows" folder or required prefix) —
+a procedure and a hardware fact live side by side in the same `topics/` directory,
+grouped in the index only by whatever thematic heading fits the project's actual
+content.
 
 **Why build your own instead of sharing someone else's?** Project-level knowledge reflects what *you* explored, from *your* perspective. Someone else's findings encode their assumptions, focus areas, and mental models — which may not match yours. The plugin's value is the accumulation process, not any particular snapshot.
 
@@ -154,28 +160,26 @@ The plugin automatically maintains compact, well-organized knowledge files. This
 | Trigger | Action |
 |---------|--------|
 | `status.md` grows past limit | Marker added; compacted at task completion or next session start |
-| `knowledge.md` grows past limit | Split into `knowledge/` directory with per-topic files |
-| Knowledge topic grows past limit | Split into sibling topic files |
-| Agent reads a knowledge file | Fixes obvious errors (stale paths, duplicates) inline (max 2 per read) |
+| Topic file grows past limit | Split into sibling topic files |
+| Agent reads a topic file | Fixes obvious errors (stale paths, duplicates) inline (max 2 per read) |
 | Cross-file issues found | Flagged with `<!-- quality-review: ... -->` for later |
 
 ### Maintenance configuration
 
-Size limits are configured in `directives.md`:
+Size limits are configured in `settings.yaml`:
 
 ```yaml
 maintenance:
   status-max-lines: 150      # soft limit — marks file for compaction
   status-final-lines: 100    # hard limit — target size after compaction
-  topic-max-lines: 200       # max lines per knowledge topic file
-  task-knowledge-split-lines: 150  # when to split flat knowledge.md into directory
+  topic-max-lines: 200       # max lines per topic file
 ```
 
 Adjust these by talking to the agent: *"set status-max-lines to 200"*.
 
 ## Configuration
 
-Settings live in `directives.md` under `## Configuration`:
+Settings live in `settings.yaml`:
 
 ```yaml
 auto-save:
