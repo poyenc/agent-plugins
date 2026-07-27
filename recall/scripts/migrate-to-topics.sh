@@ -103,6 +103,8 @@ else:
         with open(sf, 'a') as out:
             out.write('\n'.join(yaml_lines).rstrip('\n') + '\n')
     if prose_lines:
+        import os
+        os.makedirs(f"{level_dir}/topics", exist_ok=True)
         staging = f"{level_dir}/topics/_migration-needs-review.md"
         with open(staging, 'a') as out:
             out.write("\n<!-- migrated from directives.md prose — split into properly named topics -->\n")
@@ -141,6 +143,8 @@ else:
         with open(sf, 'a') as out:
             out.write('\n'.join(kv_lines) + '\n')
     if prose_lines:
+        import os
+        os.makedirs(f"{level_dir}/topics", exist_ok=True)
         staging = f"{level_dir}/topics/_migration-needs-review.md"
         with open(staging, 'a') as out:
             out.write("\n<!-- migrated from user.md prose — split into properly named topics -->\n")
@@ -174,7 +178,9 @@ for project_dir in "$ROOT"/*/; do
             for task_dir in "$branch_dir/tasks"/*/; do
                 [ -d "$task_dir" ] || continue
                 task_dir="${task_dir%/}"
-                # Task-level: flat knowledge.md -> topics/<slug>.md if present, else ensure topics/index.md
+                # Task-level: migrate split knowledge/ dir if present (same as branch/project level)
+                migrate_level_dir "$task_dir"
+                # Task-level: flat knowledge.md -> staging file if present, else ensure topics/index.md
                 if [ -f "$task_dir/knowledge.md" ] && [ -s "$task_dir/knowledge.md" ]; then
                     echo "=== flagging flat task knowledge.md for manual split: $task_dir/knowledge.md ==="
                     run mkdir -p "$task_dir/topics"
