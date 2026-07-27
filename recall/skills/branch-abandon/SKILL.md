@@ -11,9 +11,9 @@ Abandon the current branch and salvage knowledge.
 
 1. Confirm current branch is not a default branch (main/develop/master). Refuse if it is.
 2. Ask: "Why is this branch being abandoned?" Capture the reason.
-3. Review all branch-level knowledge and workflow overlays:
+3. Review all branch-level topics:
    - General insights (architectural patterns, hardware behavior, debugging techniques) → promote to project level
-   - Negative results ("don't do X because Y") → promote to project `knowledge/lessons-learned.md`
+   - Negative results ("don't do X because Y") → promote to project `topics/lessons-learned.md`
    - Branch-specific details → archive only
 4. Present summary: "This branch discovered: <list>. Promote these to project level?"
 5. Apply promotions (append to project-level files, update indexes).
