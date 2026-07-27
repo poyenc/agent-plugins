@@ -36,7 +36,7 @@ migrate_level_dir() {
             [ -f "$f" ] || continue
             base="$(basename "$f")"
             if [ "$base" = "index.md" ]; then
-                run cp "$f" "$td/index.md"
+                run mv "$f" "$td/index.md"
             else
                 run mv "$f" "$td/$base"
             fi
@@ -58,6 +58,7 @@ migrate_level_dir() {
                         { echo ""; cat "$f"; } >> "$td/index.md"
                     fi
                 fi
+                run rm -f "$f"
             else
                 run mv "$f" "$td/$base"
             fi
