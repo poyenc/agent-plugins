@@ -11,7 +11,7 @@ if [ -z "$session_id" ]; then
   echo "ERROR: could not determine session ID" >&2
   exit 1
 fi
-bash "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/toggle.sh" off "$session_id"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/toggle.sh" off "$session_id"
 ```
 
 Tell the user: "ntfy notifications are now **off** for this session."
