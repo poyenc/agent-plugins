@@ -30,7 +30,15 @@ print(text)
 
 printf '%s' "$clean" | grep -qF '?' || exit 0
 
-body=$(printf '%s' "$msg" | tail -c 300)
+# Extract sentences containing '?' from the cleaned text, join them
+body=$(printf '%s' "$clean" | python3 -c "
+import sys, re
+text = sys.stdin.read()
+sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+questions = [s.strip() for s in sentences if '?' in s]
+print(' / '.join(questions)[:300])
+" 2>/dev/null || true)
+[ -z "$body" ] && body=$(printf '%s' "$msg" | tail -c 300)
 bash "$(dirname "$0")/ntfy-send.sh" "$body"
 
 exit 0
