@@ -30,13 +30,27 @@ print(text)
 
 printf '%s' "$clean" | grep -qF '?' || exit 0
 
-# Extract sentences containing '?' from the cleaned text, join them
+# Extract: paragraph before question + question paragraph + following bullet list
 body=$(printf '%s' "$clean" | python3 -c "
 import sys, re
-text = sys.stdin.read()
-sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-questions = [s.strip() for s in sentences if '?' in s]
-print(' / '.join(questions)[:300])
+text = sys.stdin.read().strip()
+paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+
+def has_standalone_question(para):
+    # '?' at end of a line — excludes inline embedded questions mid-sentence
+    return bool(re.search(r'\?\s*$', para, re.MULTILINE))
+
+q_idx = next((i for i, p in enumerate(paragraphs) if has_standalone_question(p)), None)
+if q_idx is None:
+    print('')
+else:
+    parts = []
+    if q_idx > 0:
+        parts.append(paragraphs[q_idx - 1])
+    parts.append(paragraphs[q_idx])
+    if q_idx + 1 < len(paragraphs) and re.match(r'^[-*]', paragraphs[q_idx + 1]):
+        parts.append(paragraphs[q_idx + 1])
+    print('\n\n'.join(parts))
 " 2>/dev/null || true)
 [ -z "$body" ] && body=$(printf '%s' "$msg" | tail -c 300)
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/ntfy-send.sh" "$body"

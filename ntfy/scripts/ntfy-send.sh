@@ -4,6 +4,10 @@
 set -euo pipefail
 
 body="${1:-Agent needs input}"
+# Cap at 350 chars for phone-friendly notifications
+if [ "${#body}" -gt 350 ]; then
+    body="${body:0:350}…"
+fi
 title="${NTFY_TITLE:-Agent needs input}"
 
 curl -s \
