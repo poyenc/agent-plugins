@@ -12,7 +12,7 @@ if [ -z "$action" ] || [ -z "$session_id" ]; then
 fi
 
 marker_dir="${CLAUDE_PLUGIN_DATA}/active"
-marker="${marker_dir}/session-${session_id}"
+marker="${marker_dir}/notify-enabled-${session_id}"
 
 case "$action" in
     on)
