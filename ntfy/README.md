@@ -1,6 +1,6 @@
 # ntfy
 
-Push notifications via [ntfy.sh](https://ntfy.sh) when the agent asks you a question. Off by default; toggle per-session.
+Push notifications via [ntfy.sh](https://ntfy.sh) when the agent asks you a question or you want to be pinged on any event. Off by default; toggle per-session.
 
 ## Quick Start
 
@@ -10,12 +10,17 @@ Push notifications via [ntfy.sh](https://ntfy.sh) when the agent asks you a ques
 
 ## Usage
 
-| What you say | What happens |
+| What you say / skill | What happens |
 |---|---|
-| `ntfy on` or `/ntfy-on` | Enables notifications for the current session |
-| `ntfy off` or `/ntfy-off` | Disables notifications for the current session |
+| `ntfy on` or `/ntfy-on [title]` | Enables automatic notifications for the current session; optional title overrides the default notification title |
+| `ntfy off` or `/ntfy-off` | Disables automatic notifications for the current session |
+| `/ntfy-user` (agent-invoked) | Agent sends a one-off notification for any event |
 
-Notifications are off by default each session and do not persist across sessions.
+Automatic notifications are off by default each session and do not persist across sessions.
+
+The `/ntfy-user` skill respects the on/off toggle — it checks the same per-session marker file
+before sending. If notifications are off, it skips silently. The agent calls it explicitly when
+asked to notify on a specific event (task complete, error, milestone, question, etc.).
 
 ## How It Works
 
@@ -28,7 +33,7 @@ Two hooks fire when notifications are enabled:
 
 A `SessionEnd` hook cleans up the per-session marker file on exit.
 
-The enabled state is stored as a marker file at `${CLAUDE_CODE_TMPDIR}/ntfy-plugin/active/notify-enabled-<session_id>`.
+The enabled state is stored as a marker file at `${CLAUDE_CODE_TMPDIR}/ntfy-plugin/active/notify-enabled-<session_id>`. If a title was passed to `/ntfy-on`, it is written into that file and read back by the hooks and `/ntfy-user` to override `NTFY_TITLE` for all notifications in the session.
 
 ## Configuration
 

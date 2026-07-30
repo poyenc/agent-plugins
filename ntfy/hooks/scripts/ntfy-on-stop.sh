@@ -39,6 +39,6 @@ questions = [s.strip() for s in sentences if '?' in s]
 print(' / '.join(questions)[:300])
 " 2>/dev/null || true)
 [ -z "$body" ] && body=$(printf '%s' "$msg" | tail -c 300)
-bash "$(dirname "$0")/ntfy-send.sh" "$body"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/ntfy-send.sh" "$body"
 
 exit 0

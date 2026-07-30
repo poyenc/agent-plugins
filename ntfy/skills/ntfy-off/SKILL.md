@@ -5,13 +5,6 @@ description: Disable ntfy push notifications for this session. Use when the user
 
 Disable ntfy notifications for this session.
 
-```bash
-session_id="${CLAUDE_CODE_SESSION_ID:-}"
-if [ -z "$session_id" ]; then
-  echo "ERROR: CLAUDE_CODE_SESSION_ID is not set" >&2
-  exit 1
-fi
-bash "${CLAUDE_PLUGIN_ROOT}/skills/scripts/toggle.sh" off "$session_id"
-```
+Run `<base>/../scripts/toggle.sh off "$CLAUDE_CODE_SESSION_ID"` where `<base>` is the directory containing this SKILL.md file (e.g. `.../ntfy/skills/ntfy-off`).
 
 Tell the user: "ntfy notifications are now **off** for this session."
