@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Manage the per-session notification marker file.
-# Usage: toggle.sh on|off <session_id>
+# Usage: toggle.sh on|off <session_id> [title]
 set -euo pipefail
 
 action="${1:-}"
 session_id="${2:-}"
 session_id="${session_id//\`/}"  # strip backticks that claude session-id may wrap around the value
+title="${3:-}"
 
 if [ -z "$action" ] || [ -z "$session_id" ]; then
-    echo "Usage: toggle.sh on|off <session_id>" >&2
+    echo "Usage: toggle.sh on|off <session_id> [title]" >&2
     exit 1
 fi
 
@@ -18,7 +19,7 @@ marker="${marker_dir}/notify-enabled-${session_id}"
 case "$action" in
     on)
         mkdir -p "$marker_dir"
-        touch "$marker"
+        printf '%s' "$title" > "$marker"
         echo "ntfy notifications enabled for session ${session_id}"
         ;;
     off)

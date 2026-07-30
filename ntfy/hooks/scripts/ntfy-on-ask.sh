@@ -7,7 +7,11 @@ payload=$(cat)
 session_id=$(printf '%s' "$payload" | python3 -c \
     "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || true)
 
-[ -f "${CLAUDE_CODE_TMPDIR:-/tmp}/ntfy-plugin/active/notify-enabled-${session_id}" ] || exit 0
+marker="${CLAUDE_CODE_TMPDIR:-/tmp}/ntfy-plugin/active/notify-enabled-${session_id}"
+[ -f "$marker" ] || exit 0
+
+stored_title=$(cat "$marker")
+[ -n "$stored_title" ] && export NTFY_TITLE="$stored_title"
 
 question=$(printf '%s' "$payload" | python3 -c "
 import sys, json
