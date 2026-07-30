@@ -41,6 +41,9 @@ def has_standalone_question(para):
     return bool(re.search(r'\?\s*$', para, re.MULTILINE))
 
 q_idx = next((i for i, p in enumerate(paragraphs) if has_standalone_question(p)), None)
+# Second-pass fallback: any paragraph containing '?'
+if q_idx is None:
+    q_idx = next((i for i, p in enumerate(paragraphs) if '?' in p), None)
 if q_idx is None:
     print('')
 else:
