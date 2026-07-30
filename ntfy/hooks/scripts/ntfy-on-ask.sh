@@ -11,11 +11,11 @@ echo "payload: $payload" >> "$log"
 session_id=$(printf '%s' "$payload" | python3 -c \
     "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || true)
 
-_data_dir="${CLAUDE_CODE_TMPDIR:-/tmp}/ntfy-plugin"
+DATA_DIR="${CLAUDE_CODE_TMPDIR:-/tmp}/ntfy-plugin"
 echo "session_id: $session_id" >> "$log"
-echo "marker: ${_data_dir}/active/notify-enabled-${session_id}" >> "$log"
-echo "marker exists: $([ -f "${_data_dir}/active/notify-enabled-${session_id}" ] && echo yes || echo no)" >> "$log"
-[ -f "${_data_dir}/active/notify-enabled-${session_id}" ] || exit 0
+echo "marker: ${DATA_DIR}/active/notify-enabled-${session_id}" >> "$log"
+echo "marker exists: $([ -f "${DATA_DIR}/active/notify-enabled-${session_id}" ] && echo yes || echo no)" >> "$log"
+[ -f "${DATA_DIR}/active/notify-enabled-${session_id}" ] || exit 0
 
 question=$(printf '%s' "$payload" | python3 -c "
 import sys, json
