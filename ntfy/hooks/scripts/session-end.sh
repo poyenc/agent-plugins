@@ -9,5 +9,5 @@ session_id=$(printf '%s' "$payload" | python3 -c \
 
 [ -n "$session_id" ] || exit 0
 
-rm -f "${CLAUDE_PLUGIN_DATA}/active/notify-enabled-${session_id}"
+rm -f "${CLAUDE_CODE_TMPDIR:-/tmp}/ntfy-plugin/active/notify-enabled-${session_id}"
 exit 0

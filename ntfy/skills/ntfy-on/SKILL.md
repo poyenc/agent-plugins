@@ -6,9 +6,9 @@ description: Enable ntfy push notifications for this session. Use when the user 
 Enable ntfy notifications for this session.
 
 ```bash
-session_id=$(claude session-id 2>/dev/null || echo "")
+session_id="${CLAUDE_CODE_SESSION_ID:-}"
 if [ -z "$session_id" ]; then
-  echo "ERROR: could not determine session ID" >&2
+  echo "ERROR: CLAUDE_CODE_SESSION_ID is not set" >&2
   exit 1
 fi
 bash "${CLAUDE_PLUGIN_ROOT}/skills/scripts/toggle.sh" on "$session_id"

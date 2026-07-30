@@ -5,13 +5,14 @@ set -euo pipefail
 
 action="${1:-}"
 session_id="${2:-}"
+session_id="${session_id//\`/}"  # strip backticks that claude session-id may wrap around the value
 
 if [ -z "$action" ] || [ -z "$session_id" ]; then
     echo "Usage: toggle.sh on|off <session_id>" >&2
     exit 1
 fi
 
-marker_dir="${CLAUDE_PLUGIN_DATA}/active"
+marker_dir="${CLAUDE_CODE_TMPDIR:-/tmp}/ntfy-plugin/active"
 marker="${marker_dir}/notify-enabled-${session_id}"
 
 case "$action" in
