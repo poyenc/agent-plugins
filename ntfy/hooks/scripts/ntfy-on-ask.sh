@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse hook on AskUserQuestion — fires before the question is displayed.
+# PreToolUse hook on AskUserQuestion -- fires before the question is displayed.
 set -euo pipefail
 
 payload=$(cat)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop hook — best-effort catch for plain-text questions via "?" detection.
+# Stop hook -- best-effort catch for plain-text questions via "?" detection.
 # Strips code blocks before checking to reduce false positives.
 set -euo pipefail
 

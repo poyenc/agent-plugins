@@ -31,4 +31,4 @@ This repo is a local Claude Code marketplace. Add it to `~/.claude/settings.json
 
 ## Usage
 
-Plugins are loaded automatically by Claude Code when enabled. Each plugin provides slash commands — see individual plugin READMEs for details.
+Plugins are loaded automatically by Claude Code when enabled. Each plugin provides slash commands -- see individual plugin READMEs for details.
