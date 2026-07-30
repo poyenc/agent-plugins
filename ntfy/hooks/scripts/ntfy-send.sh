@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Shared ntfy sender. Usage: ntfy-send.sh "<message>" [title]
+# Shared ntfy sender. Usage: ntfy-send.sh [message]
 # Reads NTFY_TOPIC, NTFY_URL, NTFY_PRIORITY, NTFY_TOKEN, NTFY_TITLE from env.
 set -euo pipefail
 
 body="${1:-Agent needs input}"
-title="${2:-${NTFY_TITLE:-Agent needs input}}"
+title="${NTFY_TITLE:-Agent needs input}"
 
 curl -s \
     -H "Title: ${title}" \
