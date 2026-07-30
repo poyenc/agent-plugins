@@ -24,4 +24,4 @@ qs = d.get('tool_input', {}).get('questions', [])
 print(' / '.join(q.get('question', '') for q in qs))
 " 2>/dev/null || true)
 
-bash "$(dirname "$0")/ntfy-send.sh" "${question:-Claude is asking a question}" "Claude needs input"
+bash "$(dirname "$0")/ntfy-send.sh" "${question:-Agent is asking a question}" "Agent needs input"

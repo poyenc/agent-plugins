@@ -40,7 +40,7 @@ Set these environment variables (e.g. in `~/.claude/settings.json` under `"env"`
 | `NTFY_URL` | `https://ntfy.sh` | ntfy server base URL |
 | `NTFY_PRIORITY` | `default` | Message priority (`min`, `low`, `default`, `high`, `urgent`) |
 | `NTFY_TOKEN` | _(none)_ | Bearer token for authenticated/private topics |
-| `NTFY_TITLE` | `Claude needs input` | Default notification title |
+| `NTFY_TITLE` | `Agent needs input` | Default notification title |
 
 Example `~/.claude/settings.json` snippet:
 

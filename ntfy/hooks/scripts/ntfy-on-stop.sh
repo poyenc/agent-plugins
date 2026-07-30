@@ -27,6 +27,6 @@ print(text)
 printf '%s' "$clean" | grep -qF '?' || exit 0
 
 body=$(printf '%s' "$msg" | tail -c 300)
-bash "$(dirname "$0")/ntfy-send.sh" "${body:-Claude is asking a question}" "Claude needs input"
+bash "$(dirname "$0")/ntfy-send.sh" "${body:-Agent is asking a question}" "Agent needs input"
 
 exit 0

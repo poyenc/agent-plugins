@@ -14,4 +14,4 @@ fi
 bash "${CLAUDE_PLUGIN_ROOT}/skills/scripts/toggle.sh" on "$session_id"
 ```
 
-Tell the user: "ntfy notifications are now **on** for this session. You'll be pinged on ntfy when I ask you a question."
+Tell the user: "ntfy notifications are now **on** for this session. You'll be pinged on ntfy when the agent asks you a question."
