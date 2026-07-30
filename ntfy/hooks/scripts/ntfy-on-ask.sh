@@ -7,7 +7,7 @@ payload=$(cat)
 session_id=$(printf '%s' "$payload" | python3 -c \
     "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || true)
 
-[ -f "${CLAUDE_PLUGIN_DATA}/active/${session_id}" ] || exit 0
+[ -f "${CLAUDE_PLUGIN_DATA}/active/session-${session_id}" ] || exit 0
 
 question=$(printf '%s' "$payload" | python3 -c "
 import sys, json
