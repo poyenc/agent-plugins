@@ -146,15 +146,15 @@ fi
 
 # --- Maintenance alerts (settings.yaml read on-demand here, not injected) ---
 if [ -n "${TASK_DIR:-}" ] && [ -d "${TASK_DIR:-}" ]; then
-    _max_s=$(sed -n 's/^[[:space:]]*status-max-lines:[[:space:]]*//p' \
+    MAX_LINES=$(sed -n 's/^[[:space:]]*status-max-lines:[[:space:]]*//p' \
              "$PROJECT_DIR/settings.yaml" 2>/dev/null)
     # Check for compact-needed marker
     if [ -f "$TASK_DIR/status.md" ] && head -1 "$TASK_DIR/status.md" | grep -q 'maintenance:.*compact needed'; then
         echo "Maintenance: status.md marked for compaction. Compact before starting new work."
     elif [ -f "$TASK_DIR/status.md" ]; then
-        _sl=$(wc -l < "$TASK_DIR/status.md")
-        [ "$_sl" -gt "${_max_s:-150}" ] 2>/dev/null && \
-            echo "Maintenance: status.md ${_sl} lines (limit ${_max_s:-150}). Compact before starting new work: move details to knowledge topics."
+        STATUS_LINES=$(wc -l < "$TASK_DIR/status.md")
+        [ "$STATUS_LINES" -gt "${MAX_LINES:-150}" ] 2>/dev/null && \
+            echo "Maintenance: status.md ${STATUS_LINES} lines (limit ${MAX_LINES:-150}). Compact before starting new work: move details to knowledge topics."
     fi
 fi
 
