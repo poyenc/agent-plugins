@@ -9,6 +9,11 @@
       "name": "recall",
       "source": "./recall",
       "description": "Automatic branch-aware recall system with layered overlays, conditional topic loading, and merge promotion."
+    },
+    {
+      "name": "ntfy",
+      "source": "./ntfy",
+      "description": "ntfy.sh push notifications when the agent asks a question. Off by default; toggle per-session with /ntfy-on and /ntfy-off."
     }
   ]
 }
