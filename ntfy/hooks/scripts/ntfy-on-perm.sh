@@ -50,7 +50,7 @@ if transcript_path:
 if not tool_detail:
     tool_detail = d.get('message', '').strip()
 
-print('[Permission Needed]\n' + tool_detail)
+print('[Permission Needed]\n\n' + tool_detail)
 " 2>/dev/null || true)
 
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/ntfy-send.sh" "$message"

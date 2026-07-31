@@ -22,7 +22,7 @@ for q in qs:
     header = q.get('header', '').strip()
     text = q.get('question', '').strip()
     parts.append(text)
-print('[Answer Needed]\n' + ' / '.join(parts))
+print('[Answer Needed]\n\n' + ' / '.join(parts))
 " 2>/dev/null || true)
 
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/ntfy-send.sh" "$question"

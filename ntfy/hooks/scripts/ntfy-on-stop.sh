@@ -58,6 +58,7 @@ else:
 " 2>/dev/null || true)
 [ -z "$body" ] && body=$(printf '%s' "$msg" | tail -c 300)
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/ntfy-send.sh" "[Answer Needed]
+
 $body"
 
 exit 0
