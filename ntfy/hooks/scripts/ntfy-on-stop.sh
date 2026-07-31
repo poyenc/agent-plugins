@@ -52,7 +52,7 @@ else:
     if q_idx > 0:
         parts.append(paragraphs[q_idx - 1])
     parts.append(paragraphs[q_idx])
-    if q_idx + 1 < len(paragraphs) and re.match(r'^[-*]', paragraphs[q_idx + 1]):
+    if q_idx + 1 < len(paragraphs) and re.match(r'^[-*\d]', paragraphs[q_idx + 1]):
         parts.append(paragraphs[q_idx + 1])
     print('\n\n'.join(parts))
 " 2>/dev/null || true)
