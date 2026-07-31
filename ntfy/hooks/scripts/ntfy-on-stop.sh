@@ -23,8 +23,9 @@ msg=$(printf '%s' "$payload" | python3 -c \
 clean=$(printf '%s' "$msg" | python3 -c "
 import sys, re
 text = sys.stdin.read()
+# Strip code blocks (needed for clean '?' detection)
 text = re.sub(r'\`\`\`.*?\`\`\`', '', text, flags=re.DOTALL)
-text = re.sub(r'\`[^\`]+\`', '', text)
+text = re.sub(r'\`([^\`]+)\`', r'\1', text)
 print(text)
 " 2>/dev/null || true)
 
