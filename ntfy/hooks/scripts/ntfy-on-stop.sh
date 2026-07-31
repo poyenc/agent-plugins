@@ -50,10 +50,22 @@ if q_idx is None:
 else:
     parts = []
     if q_idx > 0:
-        parts.append(paragraphs[q_idx - 1])
-    parts.append(paragraphs[q_idx])
-    if q_idx + 1 < len(paragraphs) and re.match(r'^[-*\d]', paragraphs[q_idx + 1]):
-        parts.append(paragraphs[q_idx + 1])
+        prev = paragraphs[q_idx - 1]
+        if re.match(r'^[-*\d]', prev):
+            # prev is a list — include one more paragraph before it as context
+            if q_idx > 1:
+                parts.append(paragraphs[q_idx - 2])
+            parts.append(prev)
+            parts.append(paragraphs[q_idx])
+            # don't append after-question paragraph (list already shown before)
+        else:
+            parts.append(prev)
+            parts.append(paragraphs[q_idx])
+            # include following bullet list if present
+            if q_idx + 1 < len(paragraphs) and re.match(r'^[-*\d]', paragraphs[q_idx + 1]):
+                parts.append(paragraphs[q_idx + 1])
+    else:
+        parts.append(paragraphs[q_idx])
     print('\n\n'.join(parts))
 " 2>/dev/null || true)
 [ -z "$body" ] && body=$(printf '%s' "$msg" | tail -c 300)
