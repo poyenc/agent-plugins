@@ -23,7 +23,6 @@ msg=$(printf '%s' "$payload" | python3 -c \
 clean=$(printf '%s' "$msg" | python3 -c "
 import sys, re
 text = sys.stdin.read()
-# Strip code blocks (needed for clean '?' detection)
 text = re.sub(r'\`\`\`.*?\`\`\`', '', text, flags=re.DOTALL)
 text = re.sub(r'\`([^\`]+)\`', r'\1', text)
 print(text)
@@ -31,7 +30,7 @@ print(text)
 
 printf '%s' "$clean" | grep -qF '?' || exit 0
 
-# Extract: paragraph before question + question paragraph + following bullet list
+# Extract the question and enough surrounding context to be useful.
 body=$(printf '%s' "$clean" | python3 -c "
 import sys, re
 text = sys.stdin.read().strip()
@@ -57,15 +56,18 @@ else:
                 parts.append(paragraphs[q_idx - 2])
             parts.append(prev)
             parts.append(paragraphs[q_idx])
-            # don't append after-question paragraph (list already shown before)
         else:
-            parts.append(prev)
-            parts.append(paragraphs[q_idx])
-            # include following bullet list if present
             if q_idx + 1 < len(paragraphs) and re.match(r'^[-*\d]', paragraphs[q_idx + 1]):
+                # list after Q is self-sufficient — drop context, show Q + list
+                parts.append(paragraphs[q_idx])
                 parts.append(paragraphs[q_idx + 1])
+            else:
+                parts.append(prev)
+                parts.append(paragraphs[q_idx])
     else:
         parts.append(paragraphs[q_idx])
+        if q_idx + 1 < len(paragraphs) and re.match(r'^[-*\d]', paragraphs[q_idx + 1]):
+            parts.append(paragraphs[q_idx + 1])
     print('\n\n'.join(parts))
 " 2>/dev/null || true)
 [ -z "$body" ] && body=$(printf '%s' "$msg" | tail -c 300)
