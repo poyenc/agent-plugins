@@ -17,7 +17,12 @@ question=$(printf '%s' "$payload" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 qs = d.get('tool_input', {}).get('questions', [])
-print(' / '.join(q.get('question', '') for q in qs))
+parts = []
+for q in qs:
+    header = q.get('header', '').strip()
+    text = q.get('question', '').strip()
+    parts.append(text)
+print('[Answer Needed]\n' + ' / '.join(parts))
 " 2>/dev/null || true)
 
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/ntfy-send.sh" "$question"

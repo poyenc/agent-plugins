@@ -1,6 +1,17 @@
 {
-  "description": "Fire ntfy.sh notifications when the agent asks the user a question",
+  "description": "Fire ntfy.sh notifications when the agent asks the user a question or needs a permission decision",
   "hooks": {
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/ntfy-on-perm.sh\""
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "AskUserQuestion",
