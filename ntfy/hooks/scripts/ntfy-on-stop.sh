@@ -37,8 +37,8 @@ text = sys.stdin.read().strip()
 paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
 
 def has_standalone_question(para):
-    # '?' at end of a line — excludes inline embedded questions mid-sentence
-    return bool(re.search(r'\?\s*$', para, re.MULTILINE))
+    # '?' at end of the paragraph's last line
+    return bool(re.search(r'\?\s*$', para))
 
 q_idx = next((i for i, p in enumerate(paragraphs) if has_standalone_question(p)), None)
 # Second-pass fallback: any paragraph containing '?'
