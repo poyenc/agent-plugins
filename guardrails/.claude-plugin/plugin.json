@@ -1,0 +1,9 @@
+{
+  "name": "guardrails",
+  "description": "Behavioral guardrails: blocks sleep commands, warns on multiple concurrent crons.",
+  "version": "0.1.0",
+  "author": {
+    "name": "PoYen Chen"
+  },
+  "keywords": ["guardrails", "sleep", "cron", "limits"]
+}
