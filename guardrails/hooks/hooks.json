@@ -10,6 +10,46 @@
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-sleep.sh\""
           }
         ]
+      },
+      {
+        "matcher": "CronCreate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/cron-guard.sh\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "CronCreate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/cron-track-create.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "CronDelete",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/cron-track-delete.sh\""
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/cron-session-end.sh\""
+          }
+        ]
       }
     ]
   }
