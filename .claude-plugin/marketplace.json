@@ -18,7 +18,7 @@
     {
       "name": "guardrails",
       "source": "./guardrails",
-      "description": "Behavioral guardrails: blocks sleep commands, warns on multiple concurrent crons."
+      "description": "Enforces safe agent behavior by blocking or limiting tool usage patterns that degrade session quality."
     }
   ]
 }
