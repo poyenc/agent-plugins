@@ -25,7 +25,7 @@ Promote branch knowledge to project level.
       - **Promote** (general): architectural patterns, hardware behavior, debugging techniques, performance patterns, API insights, conventions
       - **Archive** (branch-specific): branch commit hashes, WIP status, temporary workarounds, task configs, unverified hypotheses
    c. For promotable content:
-      - If a matching project-level topic exists → append to it
+      - If a matching project-level topic exists → integrate so it holds only current truth: replace any fact the branch finding supersedes in place (never journal "used to be X, now Y" — git history holds that); append only genuinely new facts. Preserve deliberately-kept dead-end records.
       - If no matching topic → create new topic file, add to project `topics/index.md`
       - After appending, if the topic file exceeds maintenance.topic-max-lines (from the project's settings.yaml), split ### subsections into sibling topic files and update the project `topics/index.md`.
    d. Move `branches/<sanitized>/` to `archive/<sanitized>/`

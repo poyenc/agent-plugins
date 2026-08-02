@@ -159,5 +159,5 @@ if [ -n "${TASK_DIR:-}" ] && [ -d "${TASK_DIR:-}" ]; then
 fi
 
 cat << 'RULES'
-Recall-save: Save only [VERIFIED]/[OBSERVED] facts; hypotheses → status.md. Fix vague/stale/contradicted content on read.
+Recall-save: Save only [VERIFIED]/[OBSERVED] facts; hypotheses → status.md. Keep only current truth: when a fact changes, replace it in place — never journal the old value ("used to be X, now Y"); git history holds how it got there. Fix vague/stale/contradicted content on read.
 RULES
