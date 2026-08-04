@@ -1,5 +1,5 @@
 {
-  "description": "Behavioral guardrails: block sleep, warn on 2+ concurrent crons.",
+  "description": "Behavioral guardrails: block sleep, block plan mode, warn on 2+ concurrent crons.",
   "hooks": {
     "PreToolUse": [
       {
@@ -17,6 +17,15 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/cron-guard.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "EnterPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-plan-mode.sh\""
           }
         ]
       }
