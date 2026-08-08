@@ -23,14 +23,21 @@ cat << EOF
 === Mnemosyne Working Memory ===
 Project: $PROJECT  |  Branch: ${BRANCH:-<none>}
 
+WHEN TO RECORD (proactively, without being asked)
+  - A fact is verified or observed → remember at project scope
+  - A decision is made with a rationale → remember at project scope
+  - Something surprising, constraining, or non-obvious is discovered → remember at project scope
+  - The goal or direction of this branch becomes clear → write branch-status canonical
+  - Status or blockers change → update branch-status canonical in place
+
 STORING
   Project fact (persists across branches):
     mnemosyne_remember(content="[$PROJECT] ...", scope="global", source="fact", importance=0.7)
-  Branch finding (current work):
+  Branch finding (specific to this branch):
     mnemosyne_remember(content="[$PROJECT/$BRANCH] ...", scope="session", source="fact")
-  Stable canonical fact (auto-retires old value):
+  Stable canonical fact (auto-retires old value on same category+name):
     mnemosyne_remember_canonical(category=<group>, name=<key>, body=<value>)
-  Cross-project preference or rule:
+  Cross-project preference or standing rule:
     mnemosyne_shared_remember(content=..., kind="preference")
 
 RECALLING
@@ -40,14 +47,13 @@ RECALLING
   Canonical fact: mnemosyne_recall_canonical(category=<group>, name=<key>)
 
 UPDATING
-  Edit in place:        mnemosyne_update(memory_id=<id>, content=...)
-  Supersede (fact changed): mnemosyne_invalidate(memory_id=<id>) then mnemosyne_remember(...)
-  Canonical (auto-supersedes): mnemosyne_remember_canonical(...) — just call again on same category+name
+  Edit in place:       mnemosyne_update(memory_id=<id>, content=...)
+  Supersede (changed): mnemosyne_invalidate(memory_id=<id>) then mnemosyne_remember(...)
+  Canonical:           mnemosyne_remember_canonical(...) — calling again on same category+name auto-supersedes
 
-BRANCH STATUS (persist goal/status across sessions)
+BRANCH STATUS (goal and status persist across sessions)
   Read:  mnemosyne_recall_canonical(category="branch-status", name="$PROJECT/$BRANCH")
   Write: mnemosyne_remember_canonical(category="branch-status", name="$PROJECT/$BRANCH", body="goal: ...\nstatus: ...\nblockers: ...")
-  When:  write when you first learn the branch goal, update when status or blockers change
 
-Store [VERIFIED]/[OBSERVED] facts only. Never append "used to be X, now Y" — replace in place.
+Store [VERIFIED]/[OBSERVED] facts only. Replace facts in place when they change — never append the old value.
 EOF
