@@ -23,8 +23,14 @@ cat << EOF
 === Mnemosyne Working Memory ===
 Project: $PROJECT  |  Branch: ${BRANCH:-<none>}
 
+WHEN TO RECALL (do this before starting work or changing direction)
+  - Before beginning any substantive work this session: recall project layer
+  - On a non-default branch: also recall branch layer and retrieve branch-status
+  - Before answering a project-specific question: recall relevant project context
+  - When current evidence contradicts a recalled memory: invalidate the old one
+
 WHEN TO RECORD (proactively, without being asked)
-  Project scope — facts that outlive this branch:
+  Project scope — knowledge that outlives this branch:
     - A fact, behavior, or outcome is verified or observed
     - A decision is made and the rationale matters
     - Something surprising, constraining, or non-obvious is discovered
@@ -39,30 +45,45 @@ WHEN TO RECORD (proactively, without being asked)
   Shared (cross-project):
     - A preference, standing rule, or workflow correction applies globally
 
+RECALLING
+  Project layer (always):  mnemosyne_recall(query="[$PROJECT] <topic>")
+EOF
+
+if [ -n "$BRANCH" ]; then
+cat << EOF
+  Branch layer:            mnemosyne_recall(query="[$PROJECT/$BRANCH] <topic>")
+  Branch status:           mnemosyne_recall_canonical(category="branch-status", name="$PROJECT/$BRANCH")
+EOF
+fi
+
+cat << EOF
+  Global rules:            mnemosyne_shared_recall(query=<topic>)
+  Canonical fact:          mnemosyne_recall_canonical(category=<group>, name=<key>)
+
 STORING
-  Project fact (persists across branches):
+  Project fact (survives across branches):
     mnemosyne_remember(content="[$PROJECT] ...", scope="global", source="fact", importance=0.7)
+EOF
+
+if [ -n "$BRANCH" ]; then
+cat << EOF
   Branch finding (specific to this branch):
-    mnemosyne_remember(content="[$PROJECT/$BRANCH] ...", scope="session", source="fact")
+    mnemosyne_remember(content="[$PROJECT/$BRANCH] ...", scope="global", source="fact")
+  Branch status (goal/status/blockers — replaces in place):
+    mnemosyne_remember_canonical(category="branch-status", name="$PROJECT/$BRANCH", body="goal: ...\nstatus: ...\nblockers: ...")
+EOF
+fi
+
+cat << EOF
   Stable canonical fact (auto-retires old value on same category+name):
     mnemosyne_remember_canonical(category=<group>, name=<key>, body=<value>)
   Cross-project preference or standing rule:
     mnemosyne_shared_remember(content=..., kind="preference")
-
-RECALLING
-  This project:   mnemosyne_recall(query="[$PROJECT] <topic>")
-  This branch:    mnemosyne_recall(query="[$PROJECT/$BRANCH] <topic>")
-  Global rules:   mnemosyne_shared_recall(query=<topic>)
-  Canonical fact: mnemosyne_recall_canonical(category=<group>, name=<key>)
 
 UPDATING
   Edit in place:       mnemosyne_update(memory_id=<id>, content=...)
   Supersede (changed): mnemosyne_invalidate(memory_id=<id>) then mnemosyne_remember(...)
   Canonical:           mnemosyne_remember_canonical(...) — calling again on same category+name auto-supersedes
 
-BRANCH STATUS (goal and status persist across sessions)
-  Read:  mnemosyne_recall_canonical(category="branch-status", name="$PROJECT/$BRANCH")
-  Write: mnemosyne_remember_canonical(category="branch-status", name="$PROJECT/$BRANCH", body="goal: ...\nstatus: ...\nblockers: ...")
-
-Store [VERIFIED]/[OBSERVED] facts only. Replace facts in place when they change — never append the old value.
+Record only what is [VERIFIED] or [OBSERVED] as fact. Goals, decisions, and status go in branch-status canonical or as clearly labelled entries. Replace content in place when it changes — never append the old value.
 EOF
