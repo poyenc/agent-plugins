@@ -24,11 +24,20 @@ cat << EOF
 Project: $PROJECT  |  Branch: ${BRANCH:-<none>}
 
 WHEN TO RECORD (proactively, without being asked)
-  - A fact is verified or observed → remember at project scope
-  - A decision is made with a rationale → remember at project scope
-  - Something surprising, constraining, or non-obvious is discovered → remember at project scope
-  - The goal or direction of this branch becomes clear → write branch-status canonical
-  - Status or blockers change → update branch-status canonical in place
+  Project scope — facts that outlive this branch:
+    - A fact, behavior, or outcome is verified or observed
+    - A decision is made and the rationale matters
+    - Something surprising, constraining, or non-obvious is discovered
+    - A measured result is obtained (number, outcome, comparison)
+    - A dead end is confirmed ("do not re-pursue X because Y")
+  Branch scope — findings specific to current line of work:
+    - An intermediate finding that may not generalize beyond this branch
+    - A working hypothesis confirmed within this branch's context
+  Canonical / branch status:
+    - The goal or direction of this branch becomes clear → write branch-status
+    - Status or blockers change → update branch-status in place
+  Shared (cross-project):
+    - A preference, standing rule, or workflow correction applies globally
 
 STORING
   Project fact (persists across branches):
