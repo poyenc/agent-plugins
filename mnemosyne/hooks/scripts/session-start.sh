@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# Inject mnemosyne bank/branch context and tool-use conventions into session
+# Inject mnemosyne context and tool-use conventions into session
 
-MNEMOSYNE_BIN="${MNEMOSYNE_BIN:-mnemosyne}"
-
-# Detect project name from git remote, fall back to directory basename
 detect_project() {
     local url
     url="$(git remote get-url origin 2>/dev/null)" || true
@@ -15,34 +12,42 @@ detect_project() {
     fi
 }
 
-BANK="$(detect_project)"
+PROJECT="$(detect_project)"
 BRANCH="$(git branch --show-current 2>/dev/null || echo "")"
 
-echo "MNEMOSYNE_BANK=$BANK"
+echo "MNEMOSYNE_PROJECT=$PROJECT"
 [ -n "$BRANCH" ] && echo "MNEMOSYNE_BRANCH=$BRANCH"
 echo ""
 
 cat << EOF
 === Mnemosyne Working Memory ===
-Bank: $BANK  |  Branch: ${BRANCH:-<none>}
+Project: $PROJECT  |  Branch: ${BRANCH:-<none>}
 
-Tool-use conventions (apply to every mnemosyne tool call this session):
+STORING
+  Project fact (persists across branches):
+    mnemosyne_remember(content="[$PROJECT] ...", scope="global", source="fact", importance=0.7)
+  Branch finding (current work):
+    mnemosyne_remember(content="[$PROJECT/$BRANCH] ...", scope="session", source="fact")
+  Stable canonical fact (auto-retires old value):
+    mnemosyne_remember_canonical(category=<group>, name=<key>, body=<value>)
+  Cross-project preference or rule:
+    mnemosyne_shared_remember(content=..., kind="preference")
 
-STORING memories
-  Project fact (survives branch):  mnemosyne_remember(bank="$BANK", scope="global", ...)
-  Branch finding (this branch):    mnemosyne_remember(bank="$BANK", scope="session", metadata={"branch": "${BRANCH:-<branch>}"}, ...)
-  Stable canonical fact:           mnemosyne_remember_canonical(category=..., name=..., body=...)
-  Cross-project preference/rule:   mnemosyne_shared_remember(content=..., kind="preference"|"meta")
+RECALLING
+  This project:   mnemosyne_recall(query="[$PROJECT] <topic>")
+  This branch:    mnemosyne_recall(query="[$PROJECT/$BRANCH] <topic>")
+  Global rules:   mnemosyne_shared_recall(query=<topic>)
+  Canonical fact: mnemosyne_recall_canonical(category=<group>, name=<key>)
 
-RECALLING memories
-  This project:    mnemosyne_recall(query=..., bank="$BANK")
-  Cross-project:   mnemosyne_shared_recall(query=...)
+UPDATING
+  Edit in place:        mnemosyne_update(memory_id=<id>, content=...)
+  Supersede (fact changed): mnemosyne_invalidate(memory_id=<id>) then mnemosyne_remember(...)
+  Canonical (auto-supersedes): mnemosyne_remember_canonical(...) — just call again on same category+name
 
-UPDATING memories
-  Edit in place:              mnemosyne_update(memory_id=..., content=...)
-  Replace (fact changed):     mnemosyne_invalidate(memory_id=...) then mnemosyne_remember(...)
-  Canonical fact (auto-retires old): mnemosyne_remember_canonical(...) — just overwrite the slot
+BRANCH STATUS (persist goal/status across sessions)
+  Read:  mnemosyne_recall_canonical(category="branch-status", name="$PROJECT/$BRANCH")
+  Write: mnemosyne_remember_canonical(category="branch-status", name="$PROJECT/$BRANCH", body="goal: ...\nstatus: ...\nblockers: ...")
+  When:  write when you first learn the branch goal, update when status or blockers change
 
-Store [VERIFIED]/[OBSERVED] facts only. Hypotheses stay in conversation context, not in memory.
-When a fact changes, replace it — never append "used to be X, now Y".
+Store [VERIFIED]/[OBSERVED] facts only. Never append "used to be X, now Y" — replace in place.
 EOF
