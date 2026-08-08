@@ -95,5 +95,7 @@ UPDATING
   Supersede (changed): mnemosyne_invalidate(memory_id=<id>) then mnemosyne_remember(...)
   Canonical:           mnemosyne_remember_canonical(...) — calling again on same category+name auto-supersedes
 
-Record only what is [VERIFIED] or [OBSERVED] as fact. Goals, decisions, and status go in branch-status canonical or as clearly labelled entries. Replace content in place when it changes — never append the old value.
+Record only [VERIFIED] or [OBSERVED] facts. Goals, decisions, and status go in branch-status canonical.
+Near-duplicates accumulate and are NOT auto-merged — mnemosyne_sleep does not deduplicate.
+Before storing: recall first. If a matching memory exists, update or invalidate it — never add alongside it.
 EOF
