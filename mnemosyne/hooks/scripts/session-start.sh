@@ -23,14 +23,22 @@ cat << EOF
 === Mnemosyne Working Memory ===
 Project: $PROJECT  |  Branch: ${BRANCH:-<none>}
 
-WHEN TO RECALL (do this before starting work or changing direction)
-  - Before beginning any substantive work this session: recall project layer
-  - On a non-default branch: also recall branch layer and retrieve branch-status
-  - Before answering a project-specific question: recall relevant project context
-  - When current evidence contradicts a recalled memory: invalidate the old one
+WHEN TO RECALL (do this before acting, not after)
+  Before any multi-step procedure (run, build, deploy, test, submit, publish, ...):
+    → mnemosyne_recall(query="[$PROJECT] how to <procedure>")
+  Before choosing an approach or making a decision:
+    → mnemosyne_recall(query="[$PROJECT] <topic> decision")
+    → mnemosyne_recall(query="[$PROJECT] <topic> dead end")
+  When first touching a topic or area this session:
+    → mnemosyne_recall(query="[$PROJECT] <topic>")
+  When diagnosing an unexpected result or problem:
+    → mnemosyne_recall(query="[$PROJECT] <symptom or problem type>")
+  On a non-default branch: also recall branch layer and retrieve branch-status
+  When recalled content conflicts with current evidence: invalidate and replace
 
 WHEN TO RECORD (proactively, without being asked)
   Project scope — knowledge that outlives this branch:
+    - A procedure or workflow is established or corrected ("how to <X>")
     - A fact, behavior, or outcome is verified or observed
     - A decision is made and the rationale matters
     - Something surprising, constraining, or non-obvious is discovered
@@ -61,6 +69,8 @@ cat << EOF
   Canonical fact:          mnemosyne_recall_canonical(category=<group>, name=<key>)
 
 STORING
+  Procedure / how-to (any multi-step process established or corrected):
+    mnemosyne_remember(content="[$PROJECT] how to <procedure>: <steps>", scope="global", source="fact", importance=0.8)
   Project fact (survives across branches):
     mnemosyne_remember(content="[$PROJECT] ...", scope="global", source="fact", importance=0.7)
 EOF
