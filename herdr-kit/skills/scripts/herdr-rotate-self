@@ -6,6 +6,16 @@ source "$HERE/rotate-common.sh"
 
 usage() { die "usage: herdr-rotate-self <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG] [--no-kickoff]"; }
 
+# Builds the `herdr-rotate finish` target string for THIS agent's own pane: bare pane id,
+# or pane@session-prefix when a stable per-session id is available (claude only -- see
+# session_id_for in rotate-common.sh; pi/codex have none, so the plain pane id is used and
+# the staleness check that "@session" enables is honestly skipped, same as send_handoff does).
+self_target() {
+  resolve "$HERDR_PANE_ID"
+  if [ -n "$ROTATE_SESSION" ]; then printf '%s@%s' "$ROTATE_PANE" "${ROTATE_SESSION:0:8}"
+  else printf '%s' "$ROTATE_PANE"; fi
+}
+
 run_self() {
   guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
   [ $# -ge 1 ] || usage
@@ -15,7 +25,24 @@ run_self() {
   [ "${#POSITIONAL[@]}" -eq 0 ] || die "unexpected extra argument: ${POSITIONAL[0]}"
   [ -n "${HERDR_PANE_ID:-}" ] || die "HERDR_PANE_ID is not set -- cannot determine which pane to rotate"
 
-  note "TODO: self_target + spawn (Task 4)"
+  local target; target="$(self_target)"
+
+  # NOTE: self_target() runs via $(...), a subshell -- resolve()'s ROTATE_PANE/ROTATE_SESSION
+  # globals it sets do NOT survive back into this shell. Use $HERDR_PANE_ID directly here
+  # instead (it is, by definition, the same pane self_target() just resolved).
+  local log_dir="${ROTATE_LOCK_ROOT:-/tmp}/herdr-rotate-self-$(id -un)"
+  mkdir -m 700 -p "$log_dir"
+  local log_file="$log_dir/$(printf '%s' "$HERDR_PANE_ID" | tr -c 'A-Za-z0-9' '_')-$$.log"
+
+  # env -u strips HERDR_PANE_ID from the daemon's environment -- this is what makes the
+  # daemon a genuinely different actor from rotate-common.sh's self-rejection check's point
+  # of view (resolve_and_prepare's `ROTATE_PANE = HERDR_PANE_ID` branch, settle=1 case).
+  # setsid detaches from this shell's session so the daemon survives this Bash call returning.
+  setsid env -u HERDR_PANE_ID "$HERE/herdr-rotate" finish "$target" "$handoff_path" "$@" \
+    >"$log_file" 2>&1 </dev/null &
+  disown
+
+  note "self-rotation daemon launched for $target (log: $log_file) -- stop now, you are about to be replaced"
 }
 
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
