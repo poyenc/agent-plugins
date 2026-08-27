@@ -19,6 +19,11 @@
       "name": "guardrails",
       "source": "./guardrails",
       "description": "Enforces safe agent behavior by blocking or limiting tool usage patterns that degrade session quality."
+    },
+    {
+      "name": "herdr-kit",
+      "source": "./herdr-kit",
+      "description": "Herdr agent rotation tools: checkpoint-and-relaunch a running claude/pi/codex agent in place, including self-rotation via a detached daemon."
     }
   ]
 }
