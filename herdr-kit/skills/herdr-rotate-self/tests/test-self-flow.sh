@@ -4,9 +4,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; S="$HERE/../../scripts"
 PASS=0; FAIL=0
 assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; echo "    exp:[$2] act:[$3]"; FAIL=$((FAIL+1)); fi; }
 
+SUITE_ROOT=$(mktemp -d)
+trap 'rm -rf "$SUITE_ROOT"' EXIT
+
 setup(){
-  export TMPDIR; TMPDIR=$(mktemp -d)
-  export MOCK_STATE; MOCK_STATE=$(mktemp -d)
+  export TMPDIR; TMPDIR=$(mktemp -d --tmpdir="$SUITE_ROOT")
+  export MOCK_STATE; MOCK_STATE=$(mktemp -d --tmpdir="$SUITE_ROOT")
   export MOCK_CALLS="$MOCK_STATE/calls"; : > "$MOCK_CALLS"
   export MOCK_KIND="$1" MOCK_PANE="wG:p1" MOCK_NAME="target"
   unset MOCK_SESSION
@@ -16,7 +19,7 @@ setup(){
   export ROTATE_EXIT_POLL_SECS=5 ROTATE_VERIFY_POLL_SECS=5 ROTATE_DETECT_POLL_SECS=1 ROTATE_SETTLE_POLL_SECS=5
   export ROTATE_LOCK_ROOT="$TMPDIR"
   export HERDR_PANE_ID=wG:p1
-  HANDOFF_PATH=$(mktemp); printf '# handoff\n' > "$HANDOFF_PATH"
+  HANDOFF_PATH=$(mktemp --tmpdir="$SUITE_ROOT"); printf '# handoff\n' > "$HANDOFF_PATH"
 }
 
 # --- self_target(): pure function test, no daemon spawn ---

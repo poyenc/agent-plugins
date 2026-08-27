@@ -45,8 +45,7 @@ it can confirm the pane empty).
    and dies with you left untouched -- a safe, retryable failure, not data loss, but the
    rotation will not have happened.
 
-- `--name N` -- name for the fresh session (default: keeps the same name/derives one the
-  same way herdr-rotate does).
+- `--name N` -- name for an unnamed agent on relaunch (default: derived `<kind>-<pane>`).
 - `--model M` / `--effort E` -- override launch model/effort (same semantics as
   herdr-rotate's own `finish`; pi model must be provider-qualified).
 - `--kickoff "<msg>"` / `--no-kickoff` -- same as herdr-rotate's `finish`.

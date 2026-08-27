@@ -23,7 +23,8 @@ source "$HERE/../../herdr-rotate/tests/lib-wait-for-turn.sh"
 tab=$(herdr tab create --workspace wG --cwd "$PWD" --label "$target" --no-focus)
 tpane=$(printf '%s' "$tab" | jq -r .result.root_pane.pane_id)
 tabid=$(printf '%s' "$tab" | jq -r .result.tab.tab_id)
-cleanup(){ herdr tab close "$tabid" >/dev/null 2>&1 || true; }
+handoff_path=""
+cleanup(){ herdr tab close "$tabid" >/dev/null 2>&1 || true; [ -n "$handoff_path" ] && rm -f "$handoff_path"; }
 trap cleanup EXIT
 
 herdr agent start "$target" --kind "$kind" --pane "$tpane" --timeout 120000 -- "${LAUNCH[@]}" >/dev/null

@@ -30,9 +30,20 @@ run_self() {
   # NOTE: self_target() runs via $(...), a subshell -- resolve()'s ROTATE_PANE/ROTATE_SESSION
   # globals it sets do NOT survive back into this shell. Use $HERDR_PANE_ID directly here
   # instead (it is, by definition, the same pane self_target() just resolved).
+  # Same hardening as run_finish's lock_dir in rotate-common.sh: check-before-create, reject a
+  # symlink or a dir not owned by us, only mkdir when nothing exists yet. log_file then uses
+  # mktemp inside the now-trusted dir instead of a predictable $$-suffixed name -- mktemp never
+  # opens an existing path, so no separate symlink check is needed on the file itself.
   local log_dir="${ROTATE_LOCK_ROOT:-/tmp}/herdr-rotate-self-$(id -un)"
-  mkdir -m 700 -p "$log_dir"
-  local log_file="$log_dir/$(printf '%s' "$HERDR_PANE_ID" | tr -c 'A-Za-z0-9' '_')-$$.log"
+  if [ -e "$log_dir" ] || [ -L "$log_dir" ]; then
+    [ -L "$log_dir" ] && die "refusing to use $log_dir: it is a symlink, not a plain directory"
+    [ -d "$log_dir" ] || die "refusing to use $log_dir: not a directory"
+    [ "$(stat -c %U "$log_dir" 2>/dev/null)" = "$(id -un)" ] || die "refusing to use $log_dir: not owned by the current user"
+  else
+    mkdir -m 700 -p "$log_dir"
+  fi
+  local log_file
+  log_file=$(mktemp "$log_dir/$(printf '%s' "$HERDR_PANE_ID" | tr -c 'A-Za-z0-9' '_')-XXXXXX.log")
 
   # env -u strips HERDR_PANE_ID from the daemon's environment -- this is what makes the
   # daemon a genuinely different actor from rotate-common.sh's self-rejection check's point
