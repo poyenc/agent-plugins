@@ -53,4 +53,24 @@ assert_eq "daemon sent /quit before relaunch" "1" "$([ "$(grep -n '/quit' "$MOCK
 assert_eq "daemon sent kickoff after relaunch" "1" "$(grep -c 'Continue the work described' "$MOCK_CALLS")"
 assert_eq "no separate handoff-write prompt was sent (self-rotation skips the ping)" "0" "$(grep -c 'Write a handoff' "$MOCK_CALLS")"
 
+# --- full flow: override flags (--model/--effort/--no-kickoff) forwarded through the detached
+# daemon spawn into the real `herdr-rotate finish` relaunch, not just the base argv surviving ---
+setup claude sess-abc12345
+HERDR_ENV=1 HERDR_PANE_ID=wG:p1 bash "$S/herdr-rotate-self" "$HANDOFF_PATH" --model amd-gateway/new-model --effort high --no-kickoff >/dev/null 2>&1
+rc=$?
+assert_eq "run_self (with overrides) returns fast, exit 0" "0" "$rc"
+
+# --no-kickoff means verify()'s post-relaunch capture_argv (the 2nd 'pane process-info' call) is
+# the daemon's last MOCK_CALLS-visible action -- poll for that instead of 'agent start' (an
+# earlier call), same reasoning as the kickoff-text poll above for the no-override case.
+deadline=$(( $(date +%s) + 10 ))
+while [ "$(date +%s)" -lt "$deadline" ]; do
+  [ "$(grep -c 'pane process-info' "$MOCK_CALLS" 2>/dev/null)" -ge 2 ] && break
+  command sleep 0.2
+done
+assert_eq "daemon relaunched the agent (with overrides)" "1" "$(grep -c 'agent start' "$MOCK_CALLS")"
+assert_eq "relaunched argv has overridden model" "1" "$(grep -c '^amd-gateway/new-model$' "$MOCK_STATE/argv")"
+assert_eq "relaunched argv has overridden effort" "1" "$(grep -c '^high$' "$MOCK_STATE/argv")"
+assert_eq "relaunched argv no longer has the original model" "0" "$(grep -c '^opus$' "$MOCK_STATE/argv")"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
