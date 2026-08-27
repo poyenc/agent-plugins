@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=SCRIPTDIR/rotate-common.sh
+source "$HERE/rotate-common.sh"
+MODEL_FLAG=--model; EFFORT_FLAG=--thinking; EFFORT_STYLE=flag
+
+validate_override() {   # pi model must be provider-qualified
+  local m="$1"
+  [ -z "$m" ] && return 0
+  case "$m" in */*) return 0 ;; *) die "pi model override must be provider-qualified (e.g. amd-gateway/$m)";; esac
+}
+
+exit_fallback() {       # pi ignores single ctrl-c/ctrl-d; two ctrl-d exit
+  local pane="$1"
+  herdr agent send-keys "$pane" ctrl+d ctrl+d >/dev/null 2>&1 || true
+  local deadline=$(( SECONDS + ${ROTATE_EXIT_POLL_SECS:-25} ))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    gone "$pane" && return 0
+    command sleep 1
+  done
+  return 1
+}
+
+# Reads the LIVE model/effort straight from pi's own /settings (searched to "thinking") and
+# /model command output (never header/footer/statusline) and cancels both with Esc, leaving
+# nothing changed. Unlike claude, pi's agent_status never reports "blocked" for these pickers,
+# so closure can't be confirmed via status -- close_modal instead polls for the picker's own
+# marker to actually disappear (re-sending Esc each round) before anything proceeds, so the
+# handoff prompt or the next picker is never sent into one that's still open.
+# Sets DETECTED_MODEL/DETECTED_EFFORT (empty if undetectable).
+close_modal() {
+  local pane="$1" marker="${2:-}" out deadline
+  herdr agent send-keys "$pane" esc >/dev/null 2>&1 || true
+  [ -n "$marker" ] || return 0
+  deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    # A read failure is UNKNOWN, not "closed" -- treating it as closed would let a still-open
+    # picker be mistaken for confirmed closure on a transient herdr read error.
+    if out=$(herdr pane read "$pane" --source visible --lines 30 2>/dev/null); then
+      printf '%s' "$out" | grep -qE "$marker" || return 0
+    fi
+    herdr agent send-keys "$pane" esc >/dev/null 2>&1 || true
+    command sleep 1
+  done
+  # note: every call site below propagates this via explicit `|| return 1` -- not relying on
+  # this script's own set -e, since some of those call sites run under a caller (verify(), for
+  # pi) that disables -e for this whole call chain (see detect_override's own comment).
+  note "picker on $pane may not have closed (marker still present); aborting rotation"
+  return 1
+}
+
+# The full footer hint, not just a word from it, so ordinary transcript text mentioning
+# "search" or "thinking" in passing can't be mistaken for the picker actually being open.
+PI_SETTINGS_MARKER='Type to search · Enter/Space to change · Esc to cancel'
+PI_MODEL_MARKER='[A-Za-z0-9._-]+ \[[A-Za-z0-9._-]+\][[:space:]]*✓'
+
+detect_override() {
+  local pane="$1" out="" deadline seen
+
+  DETECTED_MODEL=""
+  DETECTED_EFFORT=""
+
+  # Confirm-closed, not fire-and-forget: either picker type could already be stuck open from
+  # an earlier call in this same process. Explicit `|| return 1` rather than relying on this
+  # script's own set -e: a caller that invokes detect_override as the LHS of || (verify() does,
+  # for pi) disables -e for this ENTIRE call chain per POSIX/bash semantics, so a bare failing
+  # statement here would silently be ignored instead of aborting.
+  close_modal "$pane" "$PI_SETTINGS_MARKER|$PI_MODEL_MARKER" || return 1
+  herdr agent prompt "$pane" "/settings" >/dev/null 2>&1 || return 0
+  # Wait for the settings picker to actually render before typing the search text -- typing
+  # into it too early lands the characters in the chat input instead (they're not the same
+  # widget until the picker is up).
+  seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
+    if printf '%s' "$out" | grep -qF "$PI_SETTINGS_MARKER"; then seen=1; break; fi
+    command sleep 1
+  done
+  [ "$seen" = 1 ] || { close_modal "$pane" "$PI_SETTINGS_MARKER" || return 1; return 0; }
+  herdr agent send-keys "$pane" t h i n k i n g >/dev/null 2>&1 || true
+  seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
+    # Require the picker's own footer too, not just the label text alone, so an ordinary
+    # transcript mention of "Thinking level" can't be mistaken for the row itself.
+    if printf '%s' "$out" | grep -qF "$PI_SETTINGS_MARKER" && printf '%s' "$out" | grep -q 'Thinking level'; then seen=1; break; fi
+    command sleep 1
+  done
+  if [ "$seen" = 1 ]; then
+    DETECTED_EFFORT=$(printf '%s' "$out" | grep -oE 'Thinking level[[:space:]]+[A-Za-z]+' | tail -n1 | awk '{print $NF}') || true
+    case "$DETECTED_EFFORT" in off|minimal|low|medium|high|xhigh|max) ;; *) DETECTED_EFFORT="" ;; esac
+  fi
+  close_modal "$pane" "$PI_SETTINGS_MARKER" || return 1
+
+  herdr agent prompt "$pane" "/model" >/dev/null 2>&1 || return 0
+  out=""; seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    out=$(herdr pane read "$pane" --source visible --lines 30 2>/dev/null || true)
+    # Require the picker's "Scope: all | scoped" line too, not just the checkmark pattern
+    # alone -- that pattern by itself is broad enough to coincidentally match ordinary text.
+    if printf '%s' "$out" | grep -q 'Scope: all | scoped' && printf '%s' "$out" | grep -qE "$PI_MODEL_MARKER"; then seen=1; break; fi
+    command sleep 1
+  done
+  if [ "$seen" = 1 ]; then
+    local line name provider
+    line=$(printf '%s' "$out" | grep -oE "$PI_MODEL_MARKER" | tail -n1) || true
+    name=$(printf '%s' "$line" | awk '{print $1}')
+    provider=$(printf '%s' "$line" | grep -oE '\[[A-Za-z0-9._-]+\]' | tr -d '[]')
+    [ -n "$name" ] && [ -n "$provider" ] && DETECTED_MODEL="${provider}/${name}"
+  fi
+  close_modal "$pane" "$PI_MODEL_MARKER" || return 1
+}
+
+# Guarded so tests can `source` this file to unit-test detect_override/close_modal directly
+# (the full finish/verify machinery has enough redundant checks around pi's live detection that
+# a stuck-picker regression in one specific branch can otherwise go unobserved end-to-end) --
+# identical behavior to before for a normal invocation.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  sub="${1:-}"; shift || true
+  case "$sub" in
+    handoff) run_handoff pi "$@" ;;
+    finish)  run_finish  pi "$@" ;;
+    *) die "usage: herdr-rotate-pi <handoff|finish> <name-or-pane> [...]" ;;
+  esac
+fi

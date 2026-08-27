@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Stateful mock herdr for flow tests. Config via env:
+#   MOCK_CALLS, MOCK_STATE (dir), MOCK_KIND, MOCK_PANE, MOCK_NAME,
+#   MOCK_VERIFY_ARGV (file; used for argv after start).
+set -uo pipefail
+printf '%s\n' "${*//$'\n'/\\n}" >> "$MOCK_CALLS"   # collapse embedded newlines: one call = one log line
+gone(){ cat "$MOCK_STATE/gone" 2>/dev/null || echo 0; }
+started(){ cat "$MOCK_STATE/started" 2>/dev/null || echo 0; }
+case "$1 $2" in
+  "agent list")
+    # Call-count-driven mutation, for tests that need "the pane/session this agent reports
+    # changed partway through a single run_finish invocation" (pane rebinding, revalidate_session
+    # failure) without a second, separate `setup` call (which would reset all mock state,
+    # including the isolated lock/token namespace those specific tests need to stay constant
+    # across).
+    n=$(( $(cat "$MOCK_STATE/list_calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$MOCK_STATE/list_calls"
+    pane="$MOCK_PANE"
+    if [ -n "${MOCK_PANE_CHANGE_AFTER:-}" ] && [ "$n" -gt "$MOCK_PANE_CHANGE_AFTER" ]; then pane="${MOCK_PANE_2:-$MOCK_PANE}"; fi
+    skind="" sval=""
+    if [ -n "${MOCK_SESSION:-}" ]; then
+      skind="id"; sval="$MOCK_SESSION"
+      if [ -n "${MOCK_SESSION_CHANGE_AFTER:-}" ] && [ "$n" -gt "$MOCK_SESSION_CHANGE_AFTER" ]; then sval="${MOCK_SESSION_2:-$MOCK_SESSION}"; fi
+    fi
+    jq -nc --arg k "$MOCK_KIND" --arg p "$pane" --arg n "${MOCK_NAME:-}" \
+           --arg cn "${MOCK_COLLISION_NAME:-}" --arg cp "${MOCK_COLLISION_PANE:-}" \
+           --arg sk "$skind" --arg sv "$sval" \
+      '{result:{agents:(
+          [({agent:$k,pane_id:$p}
+            +(if $n=="" then {} else {name:$n} end)
+            +(if $sk=="" then {} else {agent_session:{kind:$sk,value:$sv}} end))]
+          + (if $cn=="" then [] else [{agent:"claude",pane_id:$cp,name:$cn}] end)
+        )}}' ;;
+  "pane process-info")
+    src="$MOCK_STATE/argv"
+    if [ -n "${MOCK_VERIFY_ARGV:-}" ] && [ "$(started)" = 1 ]; then src="$MOCK_VERIFY_ARGV"; fi
+    mapfile -t A < "$src" 2>/dev/null || A=()
+    jq -nc --arg k "$MOCK_KIND" --args \
+      '{result:{process_info:{foreground_processes:[{name:$k,argv:([$k]+$ARGS.positional)}]}}}' -- "${A[@]}" ;;
+  "agent prompt")
+    p="$4"
+    if [ "$p" = "/quit" ]; then echo 1 > "$MOCK_STATE/gone"; fi
+    case "$p" in /settings|/model) echo 1 > "$MOCK_STATE/pi_modal_open" ;; esac
+    case "$p" in *"Continue the work described"*)
+      [ "${MOCK_FAIL_KICKOFF:-0}" = 1 ] && { echo '{"error":{"code":"agent_prompt_stalled"}}' >&2; exit 1; } ;;
+    esac
+    echo '{"result":{"type":"agent_prompted"}}' ;;
+  "agent get")
+    [ "$(gone)" = 1 ] && { echo '{"error":{"code":"agent_not_found"}}'; exit 1; }
+    # Call #1 is always "idle" (satisfies the target_idle gate that runs BEFORE detect_override
+    # is ever invoked) -- MOCK_CLAUDE_MODAL_STUCK only takes effect from call #2 onward, i.e.
+    # inside close_modal's own confirmation poll, simulating a modal that never confirms closed.
+    gn=$(( $(cat "$MOCK_STATE/get_calls" 2>/dev/null || echo 0) + 1 )); echo "$gn" > "$MOCK_STATE/get_calls"
+    if [ "$MOCK_KIND" = claude ] && [ "${MOCK_CLAUDE_MODAL_STUCK:-0}" = 1 ] && [ "$gn" -gt 1 ]; then
+      echo '{"result":{"agent":{"agent_status":"blocked"}}}'
+    else
+      echo '{"result":{"agent":{"agent_status":"idle"}}}'
+    fi ;;
+  "pane read")
+    if [ "$(gone)" = 1 ]; then
+      printf 'user@host:~/x$ \n'
+    elif [ "$MOCK_KIND" = pi ] && [ "$(cat "$MOCK_STATE/pi_modal_open" 2>/dev/null || echo 0)" = 1 ]; then
+      # Renders pi's /settings and /model pickers, reflecting whatever's currently in the
+      # live argv (post-relaunch during verify(), pre-relaunch during handoff's detect_override).
+      src="$MOCK_STATE/argv"
+      if [ -n "${MOCK_VERIFY_ARGV:-}" ] && [ "$(started)" = 1 ]; then src="$MOCK_VERIFY_ARGV"; fi
+      mapfile -t A < "$src" 2>/dev/null || A=()
+      model="" effort=""
+      for i in "${!A[@]}"; do
+        case "${A[$i]}" in
+          --model) model="${A[$((i+1))]}" ;;
+          --thinking) effort="${A[$((i+1))]}" ;;
+        esac
+      done
+      provider="${model%%/*}"; name="${model#*/}"
+      [ "$provider" = "$model" ] && provider=""
+      printf 'Scope: all | scoped\n'
+      printf 'Type to search · Enter/Space to change · Esc to cancel\n'
+      # No fallback: if argv has no --thinking, the picker genuinely shows nothing recognizable
+      # as an effort value, so DETECTED_EFFORT stays empty (a real "nothing to detect" case).
+      [ -n "$effort" ] && printf 'Thinking level          %s\n' "$effort"
+      [ -n "$name" ] && printf '%s [%s] \xe2\x9c\x93\n' "$name" "$provider"
+    else
+      printf 'agent ui drawing\n'
+    fi ;;
+  "agent start")
+    shift; while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done; [ "${1:-}" = "--" ] && shift
+    : > "$MOCK_STATE/argv"; for a in "$@"; do printf '%s\n' "$a" >> "$MOCK_STATE/argv"; done
+    echo 1 > "$MOCK_STATE/started"; echo 0 > "$MOCK_STATE/gone"
+    echo '{"result":{"agent":{}}}' ;;
+  "agent send-keys")
+    case " $* " in *' ctrl+d '*) echo 1 > "$MOCK_STATE/gone" ;; esac  # pi's exit fallback
+    # MOCK_PI_MODAL_STUCK: Esc never actually closes the picker, simulating a modal that never
+    # confirms closed (close_modal's poll keeps seeing the marker until it times out).
+    if [ "${MOCK_PI_MODAL_STUCK:-0}" != 1 ]; then
+      case " $* " in *' esc '*|*' escape '*) echo 0 > "$MOCK_STATE/pi_modal_open" ;; esac
+    fi
+    echo '{"result":{"type":"ok"}}' ;;
+  *) echo "{}" ;;
+esac

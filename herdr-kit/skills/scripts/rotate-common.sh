@@ -1,0 +1,575 @@
+#!/usr/bin/env bash
+# rotate-common.sh — shared backbone for herdr-rotate-<kind>. Sourced, not executed.
+# The caller sets `set -euo pipefail`. All herdr access is via the `herdr` command.
+
+note() { printf 'herdr-rotate: %s\n' "$*" >&2; }
+die()  { printf 'herdr-rotate: ERROR: %s\n' "$*" >&2; exit 1; }
+
+guard() { [ "${HERDR_ENV:-}" = 1 ]; }
+
+# "wG:p4" + "claude" -> "claude-wgp4" (lowercase, keep [a-z0-9], clamp 32).
+derive_name() {
+  local kind="$1" pane="$2" suffix
+  suffix=$(printf '%s' "$pane" | tr 'A-Z' 'a-z' | tr -cd 'a-z0-9')
+  printf '%s' "${kind}-${suffix}" | cut -c1-32
+}
+
+# herdr agent-name grammar.
+valid_name() { [[ "$1" =~ ^[a-z][a-z0-9_-]{0,31}$ ]]; }
+
+# Strips resume/continue/session flags so a "fresh" relaunch doesn't silently resume old
+# conversation history -- semantics verified against each CLI's own --help and differ by kind:
+#   claude: -c/--continue (boolean); -r/--resume [value] (OPTIONAL value -- only consumed if
+#     the next token doesn't look like a flag, since claude's own parser resolves the ambiguity
+#     the same way, and a bare leftover here would otherwise be misread as the positional
+#     prompt); --session-id <uuid> (required value).
+#   pi: --continue/-c (boolean); --resume/-r (BOOLEAN -- pi's --help shows no <value> for this,
+#     unlike claude, so this must NEVER consume the next token); --session/--session-id <id>
+#     and --fork <path|id> (required value each; forking also carries old context forward).
+#   codex: resume/fork are SUBCOMMANDS (a leading positional, not a flag) -- `codex resume
+#     [SESSION_ID] [PROMPT]` / `codex fork [SESSION_ID] [PROMPT]`. Handled separately, before
+#     this loop, since it's positional. codex's own -c/--config is UNRELATED to any of this
+#     (this very script uses it for -c model_reasoning_effort=...) and must never be touched.
+strip_context_flags() {
+  local kind="$1"; shift
+  local -a args=("$@")
+  if [ "$kind" = codex ]; then
+    case "${args[0]:-}" in
+      resume|fork)
+        args=("${args[@]:1}")
+        [ -n "${args[0]:-}" ] && [[ "${args[0]}" != -* ]] && args=("${args[@]:1}")
+        ;;
+    esac
+  fi
+  local n=${#args[@]} i=0 tok
+  while [ "$i" -lt "$n" ]; do
+    tok="${args[$i]}"
+    case "$kind:$tok" in
+      claude:--continue|claude:-c)              i=$((i+1)) ;;
+      claude:--session-id)                       i=$((i+2)) ;;
+      claude:--session-id=*)                     i=$((i+1)) ;;
+      claude:--resume|claude:-r)
+        i=$((i+1))
+        [ "$i" -lt "$n" ] && [[ "${args[$i]}" != -* ]] && i=$((i+1))
+        ;;
+      claude:--resume=*)                          i=$((i+1)) ;;
+      claude:-r?*)                                 i=$((i+1)) ;;   # attached short form: -r<session-id>, no space
+      pi:--continue|pi:-c|pi:--resume|pi:-r)      i=$((i+1)) ;;
+      pi:--session|pi:--session-id|pi:--fork)     i=$((i+2)) ;;
+      pi:--session=*|pi:--session-id=*|pi:--fork=*) i=$((i+1)) ;;
+      codex:--last)                               i=$((i+1)) ;;
+      *:--)
+        # End-of-options marker: nothing after this is a flag to any of these CLIs, so stop
+        # pattern-matching and copy the rest through verbatim (same "not auto-stripped"
+        # tradeoff as a positional prompt -- see SKILL.md Known limitations).
+        while [ "$i" -lt "$n" ]; do printf '%s\0' "${args[$i]}"; i=$((i+1)); done
+        ;;
+      *) printf '%s\0' "$tok"; i=$((i+1)) ;;
+    esac
+  done
+}
+
+# flag: the canonical spelling to append when absent. Trailing args: other accepted spellings
+# of the SAME flag (e.g. codex's -m is also accepted as --model) -- a match on any of them is
+# replaced IN PLACE, keeping the spelling actually found, so a launch argv using the alias
+# doesn't end up with both the alias and the canonical flag present at once.
+replace_or_append_flag() {
+  local -n _arr="$1"; local flag="$2" val="$3"; shift 3
+  local -a aliases=("$flag" "$@")
+  local out=() n=${#_arr[@]} j=0 found=0 a matched mode stop=0 insert_at=-1
+  while [ "$j" -lt "$n" ]; do
+    # Past "--", nothing is a flag any more (see strip_context_flags) -- stop matching so an
+    # override can't be inserted into, or mistakenly match, positional data on the far side.
+    if [ "$stop" = 1 ]; then out+=("${_arr[$j]}"); j=$((j+1)); continue; fi
+    if [ "${_arr[$j]}" = "--" ]; then
+      stop=1; insert_at=${#out[@]}; out+=("--"); j=$((j+1)); continue
+    fi
+    matched=""; mode=""
+    for a in "${aliases[@]}"; do
+      if [ "${_arr[$j]}" = "$a" ]; then matched="$a"; mode=space; break
+      elif [[ "${_arr[$j]}" == "$a="* ]]; then matched="$a"; mode=eq; break
+      # A short single-dash alias (e.g. codex's -m) also accepts an ATTACHED value with no
+      # separator (-mVALUE) -- long --flags don't (they require --flag=VALUE), so this only
+      # applies to exactly "-X" spellings.
+      elif [ "${#a}" -eq 2 ] && [[ "$a" == -[^-]* ]] && [[ "${_arr[$j]}" == "$a"?* ]]; then
+        matched="$a"; mode=attached; break
+      fi
+    done
+    case "$mode" in
+      eq)       out+=("${matched}=${val}"); j=$((j+1)); found=1 ;;
+      attached) out+=("${matched}${val}");  j=$((j+1)); found=1 ;;
+      space)    out+=("$matched" "$val");   j=$((j+2)); found=1 ;;
+      *)        out+=("${_arr[$j]}"); j=$((j+1)) ;;
+    esac
+  done
+  if [ "$found" != 1 ]; then
+    if [ "$insert_at" -ge 0 ]; then out=("${out[@]:0:$insert_at}" "$flag" "$val" "${out[@]:$insert_at}")
+    else out+=("$flag" "$val"); fi
+  fi
+  _arr=("${out[@]}")
+}
+
+replace_or_append_kv() {
+  # shellcheck disable=SC2178
+  local -n _arr="$1"; local key="$2" val="$3" out=() n=${#_arr[@]} j=0 found=0 stop=0 insert_at=-1
+  while [ "$j" -lt "$n" ]; do
+    if [ "$stop" = 1 ]; then out+=("${_arr[$j]}"); j=$((j+1)); continue; fi
+    if [ "${_arr[$j]}" = "--" ]; then
+      stop=1; insert_at=${#out[@]}; out+=("--"); j=$((j+1)); continue
+    fi
+    if [ "${_arr[$j]}" = "-c" ] && [ $((j+1)) -lt "$n" ] && [[ "${_arr[$((j+1))]}" == "$key="* ]]; then
+      out+=("-c" "$key=$val"); j=$((j+2)); found=1
+    else out+=("${_arr[$j]}"); j=$((j+1)); fi
+  done
+  if [ "$found" != 1 ]; then
+    if [ "$insert_at" -ge 0 ]; then out=("${out[@]:0:$insert_at}" "-c" "$key=$val" "${out[@]:$insert_at}")
+    else out+=("-c" "$key=$val"); fi
+  fi
+  _arr=("${out[@]}")
+}
+
+# Shared. Requires globals MODEL_FLAG, EFFORT_FLAG, EFFORT_STYLE (set by per-kind script).
+# MODEL_FLAG_ALIASES (optional, set by per-kind script): other accepted spellings of
+# MODEL_FLAG, e.g. codex's -m is also accepted as --model.
+apply_override() {
+  local m="$1" e="$2"
+  [ -n "$m" ] && replace_or_append_flag BASE_FLAGS "$MODEL_FLAG" "$m" "${MODEL_FLAG_ALIASES[@]}"
+  if [ -n "$e" ]; then
+    case "$EFFORT_STYLE" in
+      flag) replace_or_append_flag BASE_FLAGS "$EFFORT_FLAG" "$e" ;;
+      kv)   replace_or_append_kv   BASE_FLAGS "$EFFORT_FLAG" "$e" ;;
+      *) die "unknown EFFORT_STYLE: $EFFORT_STYLE" ;;
+    esac
+  fi
+}
+
+capture_argv() {
+  local pane="$1" kind="$2" json
+  json=$(herdr pane process-info --pane "$pane" 2>/dev/null) \
+    || die "process-info failed for pane $pane"
+  local -a raw
+  mapfile -d '' -t raw < <(printf '%s' "$json" | jq -j --arg k "$kind" '
+    .result.process_info.foreground_processes[] | select(.name==$k) | .argv[] | . + "\u0000"')
+  [ "${#raw[@]}" -gt 0 ] || die "no $kind process on pane $pane"
+  mapfile -d '' -t BASE_FLAGS < <(strip_context_flags "$kind" "${raw[@]:1}")
+}
+
+# Only a "kind":"id" agent_session (currently claude) is a real per-session identifier; pi's is
+# a filesystem path (its first bytes are not distinct across sessions) and codex has none at
+# all. Returns empty for anything else, so the "@session" correlation is honestly skipped there
+# instead of silently doing nothing useful.
+session_id_for() {
+  printf '%s' "$1" | jq -r 'if .kind=="id" then .value else "" end'
+}
+
+# <target> is normally a name or pane id. A trailing "@<session-prefix>" (as embedded in the
+# handoff ping's tag) additionally asserts that the pane's live agent_session still matches —
+# catching a stale ping from an earlier rotation, or a pane whose occupant already changed.
+# (Only meaningful for claude targets — see session_id_for.)
+resolve() {
+  local target="$1" expected_session=""
+  case "$target" in *@*) expected_session="${target##*@}"; target="${target%@*}" ;; esac
+  local row
+  row=$(herdr agent list 2>/dev/null \
+        | jq -r --arg t "$target" '
+            first(.result.agents[] | select(.name==$t or .pane_id==$t))
+            | [.agent, .pane_id, (.name // ""), (.agent_session // {} | tojson)] | @tsv') || die "agent list failed"
+  [ -n "$row" ] || die "target not found: $target"
+  # @tsv fields are tab-delimited; IFS=$'\t' read collapses an EMPTY middle field (e.g. an
+  # unnamed agent) because tab is treated as IFS whitespace regardless of this assignment —
+  # mapfile -d preserves empty fields correctly instead.
+  local -a fields
+  mapfile -d $'\t' -t fields <<<"$row"
+  [ "${#fields[@]}" -eq 4 ] || die "target not found: $target"
+  fields[3]="${fields[3]%$'\n'}"   # <<< appends a trailing newline to the last field
+  ROTATE_KIND="${fields[0]}" ROTATE_PANE="${fields[1]}" ROTATE_NAME="${fields[2]}"
+  [ -n "$ROTATE_KIND" ] && [ -n "$ROTATE_PANE" ] || die "target not found: $target"
+  ROTATE_SESSION=$(session_id_for "${fields[3]}")
+  if [ -n "$expected_session" ] && [ "${ROTATE_SESSION:0:8}" != "$expected_session" ]; then
+    die "target $target's session changed (expected ${expected_session}, now ${ROTATE_SESSION:0:8}) — stale ping or pane occupant changed; not proceeding"
+  fi
+  if [ -z "$ROTATE_NAME" ]; then
+    if [ -n "${OVERRIDE_NAME:-}" ]; then ROTATE_NAME="$OVERRIDE_NAME"
+    else ROTATE_NAME=$(derive_name "$ROTATE_KIND" "$ROTATE_PANE"); fi
+    note "agent unnamed; assigned name: $ROTATE_NAME"
+  fi
+}
+
+# Re-checks the pane's live session against what resolve() observed, immediately before the
+# destructive step below — closes the window where a wait/detection delay lets a stale ping
+# race past the earlier check in resolve(). No-op if resolve() couldn't get a session id (pi,
+# codex): there is nothing to compare against, so no false confidence either way.
+revalidate_session() {
+  local pane="$1" expected="$2"
+  [ -n "$expected" ] || return 0
+  local current
+  current=$(herdr agent list 2>/dev/null | jq -r --arg p "$pane" '
+    first(.result.agents[] | select(.pane_id==$p)) | (.agent_session // {} | tojson)') \
+    || die "agent list failed"
+  current=$(session_id_for "$current")
+  [ "$current" = "$expected" ] || die "pane $pane's session changed just before exit (expected ${expected:0:8}, now ${current:0:8}) — not proceeding"
+}
+
+# Bounded wait for the target to settle to idle/done before we touch its UI. The target's ping
+# fires mid-turn (from its own Bash tool call), so acting immediately on receipt could race the
+# tail end of that same turn. Dies on timeout rather than proceeding — the next step is
+# destructive (/quit) and should never run against a target that isn't confirmed settled.
+wait_settled() {
+  local pane="$1" st="" deadline=$(( SECONDS + ${ROTATE_SETTLE_POLL_SECS:-60} ))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    st=$(herdr agent get "$pane" 2>/dev/null | jq -r '.result.agent.agent_status // empty') || st=""
+    case "$st" in idle|done) return 0 ;; esac
+    command sleep 1
+  done
+  die "target on $pane did not settle within ${ROTATE_SETTLE_POLL_SECS:-60}s (status: ${st:-unknown}) — not proceeding with a destructive step against a possibly still-active session"
+}
+
+# %s slots: default handoff path, orchestrator pane id, target's own name (twice: instruction + literal tag).
+HANDOFF_PROMPT='Write a handoff so a fresh agent can continue this work with zero prior context — if you have a handoff skill available, invoke it now; that skill knows how to write one properly (including a team handoff, if you have live teammates), so do not duplicate its judgment here. If you do not have one, capture at minimum: the objective and what "done" looks like; task status and the exact next action; key files/branch/commands by reference, not pasted; dead ends already ruled out; and the operating rules and decisions made this session with their why — strip secrets. A default save path is %s (create the directory with mkdir -m 700 -p if needed) — use it, or your own path if more fitting; the file you actually write is authoritative.
+
+SEPARATE FROM THE DOCUMENT — a real action YOU must take yourself, right now, after the file is written (this is not something to describe inside the handoff, and not a step for whoever reads it next): run this exact shell command yourself via your Bash tool: `herdr agent prompt %s "%s: <absolute-path-of-the-file-you-wrote>"` — replace the placeholder with the real absolute path, keep "%s: " as a literal prefix (it identifies this rotation), and put nothing else in the message. Do not just print or mention this command — execute it. Then stop — do not continue the task after that; you are about to be replaced.'
+
+# Fires the handoff prompt and returns immediately — does not wait or poll. Completion is
+# reported back by the target pinging $HERDR_PANE_ID (the orchestrator), tagged with the
+# target's name + this rotation's live session-id prefix (see resolve()'s "@" handling), so
+# neither a concurrent rotation of another agent nor a stale ping from an earlier rotation of
+# THIS agent can be mistaken for the current one. Dies loudly if the send itself fails — a
+# silently-dropped prompt would otherwise leave the orchestrator waiting on a ping forever.
+send_handoff() {
+  local pane="$1" name="$2" session="$3"
+  # Tag by PANE, not name: if the agent is currently unnamed, $name is only the name it will
+  # get on relaunch (derive_name/--name) -- it doesn't exist as a resolvable live agent yet.
+  # The pane id always does, whether or not the agent is named, so finish's resolve() (which
+  # matches on name OR pane_id) can always find it from the ping.
+  local tag="$pane"
+  [ -n "$session" ] && tag="${pane}@${session:0:8}"
+  local dir="${TMPDIR:-/tmp}/handoff-$(id -un)"
+  local default_path="$dir/$(date +%y%m%d-%H%M%S)-handoff-${name}.md"
+  local prompt; printf -v prompt "$HANDOFF_PROMPT" "$default_path" "$HERDR_PANE_ID" "$tag" "$tag"
+  herdr agent prompt "$pane" "$prompt" >/dev/null 2>&1 || die "failed to send the handoff prompt to $name ($pane)"
+  note "handoff requested from $name ($pane); default path $default_path"
+  note "when its ping arrives, pass this as the target to finish: ${tag}"
+}
+
+# rc 0 iff the agent is confirmed gone AND the pane is back at a shell prompt.
+gone() {
+  local pane="$1" out
+  out=$(herdr agent get "$pane" 2>&1) || true
+  if printf '%s' "$out" | jq -e '.result.agent' >/dev/null 2>&1; then return 1; fi
+  printf '%s' "$out" | jq -e '.error.code=="agent_not_found"' >/dev/null 2>&1 || return 1
+  herdr pane read "$pane" --source visible --lines 6 2>/dev/null | grep -qE '[$#❯][[:space:]]*$'
+}
+
+exit_agent() {
+  local pane="$1"
+  herdr agent prompt "$pane" "/quit" >/dev/null 2>&1 || true
+  local deadline=$(( SECONDS + ${ROTATE_EXIT_POLL_SECS:-25} ))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if gone "$pane"; then note "agent exited; pane $pane free"; return 0; fi
+    command sleep 1
+  done
+  if declare -F exit_fallback >/dev/null 2>&1; then
+    note "/quit did not settle; trying kind fallback"
+    exit_fallback "$pane" && return 0
+  fi
+  die "agent did not exit on pane $pane"
+}
+
+relaunch() {
+  local name="$1" kind="$2" pane="$3"; shift 3
+  herdr agent start "$name" --kind "$kind" --pane "$pane" \
+    --timeout "${ROTATE_START_TIMEOUT_MS:-120000}" -- "$@" >/dev/null 2>&1 \
+    || die "relaunch failed for $name"
+  note "relaunched $name ($kind) in $pane"
+}
+
+# Extracts the value following the given flag from an argv array (empty if absent/valueless).
+value_of_flag() {  # $1=flag, remaining args = argv to search
+  local flag="$1"; shift
+  local -a arr=("$@")
+  local n=${#arr[@]} j=0
+  while [ "$j" -lt "$n" ]; do
+    [ "${arr[$j]}" = "$flag" ] && [ $((j+1)) -lt "$n" ] && { printf '%s' "${arr[$((j+1))]}"; return 0; }
+    j=$((j+1))
+  done
+}
+
+verify() {
+  local name="$1" pane="$2" kind="$3"; shift 3
+  [ "${1:-}" = "--" ] && shift
+  local -a intended=( "$@" )
+  local deadline=$(( SECONDS + ${ROTATE_VERIFY_POLL_SECS:-30} )) st=""
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    st=$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // empty')
+    case "$st" in idle|done) break ;; esac
+    command sleep 1
+  done
+  case "$st" in idle|done) ;; *) note "verify: agent not ready ($st)"; return 1 ;; esac
+
+  # pi rewrites its own process title on startup (process.title = APP_NAME in its own cli.js),
+  # which on Linux overwrites the /proc/pid/cmdline memory `herdr pane process-info` reads from
+  # -- capture_argv sees only the bare binary name, for BOTH the original agent and the freshly
+  # relaunched one. An exact argv comparison is therefore not just unreliable but ALWAYS false for
+  # pi (confirmed live: every real pi rotation failed verification this way). The only thing pi
+  # rotation can actually verify is the live model/effort, via the same screen-reading detector
+  # used to capture them -- so that's what's checked here instead. Flags beyond model/effort are
+  # NOT verified (and, per the same root cause, are not reliably replayed either).
+  if [ "$kind" = pi ] && declare -F detect_override >/dev/null 2>&1; then
+    local want_model want_effort
+    want_model=$(value_of_flag "$MODEL_FLAG" "${intended[@]}")
+    want_effort=$(value_of_flag "$EFFORT_FLAG" "${intended[@]}")
+    # If neither the original argv nor a live pre-exit detection ever produced a model/effort
+    # value, "intended" has nothing to compare the fresh session against -- pi has no OTHER
+    # verifiable signal (see the argv note above), so this would otherwise be a vacuous pass.
+    # Fail closed instead of reporting success with nothing actually checked.
+    if [ -z "$want_model" ] || [ -z "$want_effort" ]; then
+      note "verify: pi has no intended model/effort to check against (neither captured nor detected) -- pi cannot verify anything else for this kind, so treating as unverified rather than reporting a vacuous pass"
+      return 1
+    fi
+    # Explicit check, not a bare statement: verify() itself is called as `verify ... || vrc=$?`
+    # by run_finish, which per POSIX/bash disables set -e for this WHOLE call chain (not just
+    # verify's own top-level exit code) -- a close_modal failure inside detect_override would
+    # otherwise be silently swallowed here instead of failing verification.
+    detect_override "$pane" || { note "verify: live detection failed to complete cleanly (e.g. a picker wouldn't close) -- treating as unverified"; return 1; }
+    if [ "$DETECTED_MODEL" != "$want_model" ]; then
+      note "verify: live model '$DETECTED_MODEL' != intended '$want_model'"; return 1
+    fi
+    if [ "$DETECTED_EFFORT" != "$want_effort" ]; then
+      note "verify: live effort '$DETECTED_EFFORT' != intended '$want_effort'"; return 1
+    fi
+    note "verify OK (pi: live model/effort matched; other flags are not verifiable for this kind)"
+    return 0
+  fi
+
+  local -a BASE_FLAGS=()
+  capture_argv "$pane" "$kind"
+  if [ "${#BASE_FLAGS[@]}" -ne "${#intended[@]}" ]; then
+    note "verify: argv length ${#BASE_FLAGS[@]} != ${#intended[@]}"; return 1
+  fi
+  local i
+  for i in "${!intended[@]}"; do
+    if [ "${BASE_FLAGS[$i]}" != "${intended[$i]}" ]; then
+      note "verify: argv[$i] '${BASE_FLAGS[$i]}' != '${intended[$i]}'"; return 1
+    fi
+  done
+  note "verify OK"; return 0
+}
+
+# Propagates its own failure -- callers must not report a rotation "complete" if the new agent
+# was never actually told to resume.
+kickoff() {
+  local pane="$1" path="$2" msg="${3:-}"
+  if [ "${NO_KICKOFF:-0}" = 1 ]; then note "kickoff skipped (--no-kickoff)"; return 0; fi
+  local text
+  if [ -n "$msg" ]; then text="$msg"
+  else text="Continue the work described in the handoff at ${path} -- read it fully first, then pick up the task list."; fi
+  herdr agent prompt "$pane" "$text" >/dev/null 2>&1
+}
+
+# Parses --name/--model/--effort/--kickoff/--no-kickoff; leftover positionals -> POSITIONAL[].
+parse_args() {
+  OVERRIDE_NAME="" OVERRIDE_MODEL="" OVERRIDE_EFFORT="" KICKOFF="" NO_KICKOFF=0
+  POSITIONAL=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name)    [ $# -ge 2 ] || die "--name needs a value";    OVERRIDE_NAME="$2";   shift 2 ;;
+      --model)   [ $# -ge 2 ] || die "--model needs a value";   OVERRIDE_MODEL="$2";  shift 2 ;;
+      --effort)  [ $# -ge 2 ] || die "--effort needs a value";  OVERRIDE_EFFORT="$2"; shift 2 ;;
+      --kickoff) [ $# -ge 2 ] || die "--kickoff needs a value"; KICKOFF="$2";         shift 2 ;;
+      --no-kickoff) NO_KICKOFF=1; shift ;;
+      --) shift ;;
+      -*) die "unknown option: $1" ;;
+      *) POSITIONAL+=("$1"); shift ;;
+    esac
+  done
+}
+
+# Resolves + validates + captures/overrides argv; common to both entry points below.
+# settle=1 (finish only) waits for the target to reach idle/done first: its ping fires mid-turn
+# (from its own Bash tool call), so acting immediately on receipt could race the tail end of
+# that same turn. handoff doesn't need this — the target is already idle when handoff runs.
+resolve_and_prepare() {
+  local expected_kind="$1" target="$2" settle="${3:-0}" expected_pane="${4:-}"
+  resolve "$target"
+  # finish only: it already resolved once (bare, unlocked) to pick a lock file, then acquired
+  # the lock, before calling here. If $target is a mutable NAME and its live pane changed in
+  # between, the lock we're holding no longer corresponds to what we're about to act on --
+  # check this BEFORE any of the live interaction below (wait_settled/capture_argv/
+  # detect_override all send real input to $ROTATE_PANE), not after it.
+  if [ -n "$expected_pane" ] && [ "$ROTATE_PANE" != "$expected_pane" ]; then
+    die "pane for $target changed while acquiring the lock (was $expected_pane, now $ROTATE_PANE) — not proceeding"
+  fi
+  [ "$ROTATE_KIND" = "$expected_kind" ] || die "target is $ROTATE_KIND, not $expected_kind"
+  valid_name "$ROTATE_NAME" || die "invalid agent name: $ROTATE_NAME"
+  declare -F validate_override >/dev/null 2>&1 && validate_override "$OVERRIDE_MODEL" "$OVERRIDE_EFFORT"
+  # Self-rotation (target == caller's own pane): fine for handoff (this bash call is already
+  # the caller's last action for the turn -- HANDOFF_PROMPT tells it to stop after pinging, so
+  # there's nothing left to wait out), but finish can never work self-targeted: exit_agent
+  # below sends /quit then waits for the pane to actually go empty, which requires THIS very
+  # command's own process to have exited first -- a deadlock, not a race. Reject it outright
+  # rather than let it hang later once already past exit_agent.
+  if [ "$ROTATE_PANE" = "${HERDR_PANE_ID:-}" ]; then
+    if [ "$settle" = 1 ]; then
+      die "self-rotation is not supported: finish would need to exit this very agent's own pane while running as a command inside it, which can never complete -- run finish from a different orchestrating agent instead"
+    fi
+    note "self-rotation (target is this pane): skipping settle-wait, nothing to wait out"
+  elif [ "$settle" = 1 ]; then
+    wait_settled "$ROTATE_PANE"
+  fi
+  capture_argv "$ROTATE_PANE" "$ROTATE_KIND"
+  # detect_override sends real commands into the target's UI (/status, /settings, /model...) --
+  # doing that while the target is mid-turn would race whatever it's currently doing, possibly
+  # landing our keystrokes in the wrong place. finish already confirmed idle above (settle=1);
+  # handoff doesn't wait for idle (by design, so it can interrupt a busy target), so it must
+  # check right here instead of assuming -- skipping detection (not the whole handoff) if busy.
+  local target_status="" target_idle=0
+  target_status=$(herdr agent get "$ROTATE_PANE" 2>/dev/null | jq -r '.result.agent.agent_status // empty') || target_status=""
+  case "$target_status" in idle|done) target_idle=1 ;; esac
+  if { [ -z "$OVERRIDE_MODEL" ] || [ -z "$OVERRIDE_EFFORT" ]; } && declare -F detect_override >/dev/null 2>&1; then
+    if [ "$target_idle" = 1 ]; then
+      detect_override "$ROTATE_PANE"
+      [ -z "$OVERRIDE_MODEL" ]  && [ -n "$DETECTED_MODEL" ]  && OVERRIDE_MODEL="$DETECTED_MODEL"   && note "detected live model: $DETECTED_MODEL"
+      [ -z "$OVERRIDE_EFFORT" ] && [ -n "$DETECTED_EFFORT" ] && OVERRIDE_EFFORT="$DETECTED_EFFORT" && note "detected live effort: $DETECTED_EFFORT"
+    else
+      note "target not idle (status: ${target_status:-unknown}); skipping live model/effort detection to avoid racing its current turn"
+    fi
+  fi
+  apply_override "$OVERRIDE_MODEL" "$OVERRIDE_EFFORT"
+}
+
+# Entry 1/2. Per-kind scripts set MODEL_FLAG/EFFORT_FLAG/EFFORT_STYLE (+ optional
+# validate_override / exit_fallback) then call this. Sends the handoff prompt and returns —
+# it is NOT a blocking call. The invoking agent must wait for the target's ping (its own next
+# incoming turn, since the prompt is addressed to $HERDR_PANE_ID) before calling run_finish.
+run_handoff() {
+  local expected_kind="$1"; shift
+  guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
+  parse_args "$@"
+  [ "${#POSITIONAL[@]}" -eq 1 ] || die "usage: herdr-rotate-$expected_kind handoff <name-or-pane> [--name N] [--model M] [--effort E]"
+  { [ -n "$KICKOFF" ] || [ "$NO_KICKOFF" = 1 ]; } && die "--kickoff/--no-kickoff only apply to finish (the kickoff prompt is sent there, after relaunch) — pass them to finish instead"
+  resolve_and_prepare "$expected_kind" "${POSITIONAL[0]}"
+  send_handoff "$ROTATE_PANE" "$ROTATE_NAME" "$ROTATE_SESSION"
+  note "rotation paused for $ROTATE_NAME ($ROTATE_KIND) in $ROTATE_PANE — waiting on its ping"
+}
+
+# Entry 2/2. Re-resolves and re-applies the SAME overrides given to run_handoff (nothing is
+# persisted between the two calls — the caller is expected to repeat them), then exits,
+# relaunches, verifies, and kicks off the fresh session.
+run_finish() {
+  local expected_kind="$1"; shift
+  guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
+  parse_args "$@"
+  [ "${#POSITIONAL[@]}" -eq 2 ] || die "usage: herdr-rotate-$expected_kind finish <name-or-pane> <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG] [--no-kickoff]"
+  local target="${POSITIONAL[0]}" handoff_path="${POSITIONAL[1]}"
+  [ -f "$handoff_path" ] && [ -s "$handoff_path" ] || die "handoff file missing/empty: $handoff_path"
+
+  # Resolve just far enough to get the canonical pane, then lock BEFORE any further live
+  # interaction (settle-wait, argv capture, model/effort detection) -- otherwise two concurrent
+  # `finish` calls on the same pane could interleave those live pokes before either one reaches
+  # the lock below. resolve_and_prepare re-resolves from scratch once locked; the extra `agent
+  # list` round-trip here is a small price for closing that window.
+  resolve "$target"
+  local locked_pane="$ROTATE_PANE"
+
+  # Exclusive per-pane lock for everything from here on (through kickoff): without it, two
+  # concurrent `finish` calls on the same pane could interleave exit/relaunch so a delayed
+  # /quit lands on the replacement agent instead of the one it was meant for. Held for the
+  # rest of this process's lifetime (released automatically when it exits) -- never blocks: a
+  # pane already mid-finish means stop, not queue behind it. Always /tmp, never
+  # ${TMPDIR:-/tmp}: two `finish` invocations launched with different TMPDIR values must still
+  # land on the SAME lock file to actually mutex each other.
+  # This directory's path is predictable and /tmp is world-writable -- if anything already
+  # exists there, validate it BEFORE touching it at all (no mkdir -p, no chmod): mkdir -p
+  # silently succeeds through a pre-existing symlink-to-a-directory, and a chmod before the
+  # check would already have mutated an attacker-planted target's permissions by the time the
+  # check rejects it. Only actually create it (owned, mode 700 from the start) when nothing is
+  # there yet.
+  # ROTATE_LOCK_ROOT exists only so the test suite can point this at an isolated, private
+  # directory instead of the real one -- production never sets it (defaults to /tmp), so real
+  # concurrent `finish` invocations still always land on the SAME namespace regardless of their
+  # individual environment (the reason this isn't ${TMPDIR:-/tmp} either -- see below).
+  local lock_dir="${ROTATE_LOCK_ROOT:-/tmp}/herdr-rotate-lock-$(id -un)"
+  if [ -e "$lock_dir" ] || [ -L "$lock_dir" ]; then   # -e alone is false for a dangling symlink
+    [ -L "$lock_dir" ] && die "refusing to use $lock_dir: it is a symlink, not a plain directory"
+    [ -d "$lock_dir" ] || die "refusing to use $lock_dir: not a directory"
+    [ "$(stat -c %U "$lock_dir" 2>/dev/null)" = "$(id -un)" ] || die "refusing to use $lock_dir: not owned by the current user"
+  else
+    mkdir -m 700 -p "$lock_dir"
+  fi
+  local lock_file="$lock_dir/$(printf '%s' "$locked_pane" | tr -c 'A-Za-z0-9' '_').lock"
+  # -e follows symlinks, so it's false for a DANGLING symlink -- test -L unconditionally first,
+  # not gated behind -e, or a dangling symlink here would sail through to the exec below and
+  # get its target created/truncated.
+  [ -L "$lock_file" ] && die "refusing to use $lock_file: it is a symlink"
+  [ -e "$lock_file" ] && [ ! -f "$lock_file" ] && die "refusing to use $lock_file: exists but is not a plain regular file"
+  exec {ROTATE_LOCK_FD}>"$lock_file"
+  flock -n "$ROTATE_LOCK_FD" || die "another rotation is already in progress for pane $locked_pane (lock: $lock_file) — not proceeding"
+
+  resolve_and_prepare "$expected_kind" "$target" 1 "$locked_pane"
+  local -a intended=( "${BASE_FLAGS[@]}" )
+
+  # Two failure modes that agent start would otherwise only surface AFTER the old agent has
+  # already exited -- check both now, while it's still safe to just stop.
+  local f i=0
+  for f in "${BASE_FLAGS[@]}"; do
+    # Report only the index, never the value itself: the offending argument could be a
+    # multiline system prompt or a raw ESC/OSC sequence, either of which would leak into logs
+    # (or corrupt the terminal) if printed verbatim here.
+    [[ "$f" =~ [[:cntrl:]] ]] && die "captured/override flag at index $i contains a control character (herdr would reject this on relaunch) — not proceeding (value withheld from this message)"
+    i=$((i+1))
+  done
+  local collision
+  collision=$(herdr agent list 2>/dev/null | jq -r --arg n "$ROTATE_NAME" --arg p "$ROTATE_PANE" \
+    'first(.result.agents[] | select(.name==$n and .pane_id!=$p)) | .pane_id // empty') || die "agent list failed"
+  [ -z "$collision" ] || die "name '$ROTATE_NAME' is already used by a live agent in $collision — pick a different --name"
+
+  # Pi has no other way to verify a rotation (see verify()'s pi branch) -- if neither the
+  # original argv nor live detection ever produced a model/effort value, there is nothing to
+  # confirm the fresh session against, so this must be caught HERE, before anything
+  # destructive, not left to be discovered by verify() after the old agent is already gone.
+  if [ "$ROTATE_KIND" = pi ]; then
+    local pi_want_model pi_want_effort
+    pi_want_model=$(value_of_flag "$MODEL_FLAG" "${intended[@]}")
+    pi_want_effort=$(value_of_flag "$EFFORT_FLAG" "${intended[@]}")
+    if [ -z "$pi_want_model" ] || [ -z "$pi_want_effort" ]; then
+      die "pi's launch is missing an explicit model or effort value (neither captured from the original argv nor detected live) -- pi cannot verify anything else for this kind, so refusing before exit/relaunch rather than discovering this after the old agent is already gone"
+    fi
+  fi
+
+  revalidate_session "$ROTATE_PANE" "$ROTATE_SESSION"
+
+  # Single-use per-handoff token: the pane lock only keeps two SIMULTANEOUS finish calls from
+  # interleaving -- it says nothing about a SEQUENTIAL replay of the same ping after the first
+  # finish already completed and released it (most exploitable for pi/codex, which have no
+  # session id to catch a stale ping via revalidate_session above). Claimed only now, right
+  # before the destructive step: an earlier failure (bad argv, collision, stale session) must
+  # not burn the token, or a corrected retry with the same handoff path would be locked out.
+  # Canonicalize the path first (realpath, falling back to the literal path if the file can't
+  # be resolved for some reason) so /dir/file, /dir/./file, and a symlink to the same file all
+  # collapse onto ONE token instead of bypassing each other; hash it rather than sanitizing the
+  # path into a filename, which risks collisions and can exceed filesystem name-length limits.
+  # Keyed on canonical path PLUS the file's actual CONTENT, not path alone: a stable, reused
+  # filename (the handoff prompt explicitly allows choosing one instead of the timestamped
+  # default) legitimately gets overwritten with fresh content for a later, unrelated rotation,
+  # and must be treated as new when that happens -- content is what actually changed, so it's
+  # what's hashed (inode/mtime/size are metadata: a `touch` alone changes them on a file whose
+  # content is byte-for-byte unchanged, which would wrongly let an exact replay through).
+  local token_dir="$lock_dir/consumed" token_file canon_path content_hash
+  mkdir -m 700 -p "$token_dir"
+  chmod 700 "$token_dir" 2>/dev/null || true
+  canon_path=$(realpath -e -- "$handoff_path" 2>/dev/null) || canon_path="$handoff_path"
+  content_hash=$(sha1sum -- "$canon_path" 2>/dev/null | cut -d' ' -f1) || content_hash=""
+  token_file="$token_dir/$(printf '%s\n%s' "$canon_path" "$content_hash" | sha1sum | cut -d' ' -f1).used"
+  mkdir "$token_file" 2>/dev/null || die "this handoff ($handoff_path) has already been used to finish a rotation — not proceeding (replayed ping?)"
+
+  exit_agent "$ROTATE_PANE"
+  relaunch "$ROTATE_NAME" "$ROTATE_KIND" "$ROTATE_PANE" "${BASE_FLAGS[@]}"
+  local vrc=0
+  verify "$ROTATE_NAME" "$ROTATE_PANE" "$ROTATE_KIND" -- "${intended[@]}" || vrc=$?
+  [ "$vrc" -eq 0 ] || die "relaunched but argv verification FAILED — inspect $ROTATE_NAME (kickoff withheld)"
+  if kickoff "$ROTATE_PANE" "$handoff_path" "$KICKOFF"; then
+    note "rotation complete: $ROTATE_NAME ($ROTATE_KIND) in $ROTATE_PANE"
+  else
+    die "relaunched and verified $ROTATE_NAME ($ROTATE_KIND) in $ROTATE_PANE, but the kickoff prompt failed to send — the new agent is running with the right flags but hasn't been told to resume; send it the kickoff manually"
+  fi
+}

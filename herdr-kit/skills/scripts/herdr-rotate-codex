@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=SCRIPTDIR/rotate-common.sh
+source "$HERE/rotate-common.sh"
+MODEL_FLAG=-m; EFFORT_FLAG=model_reasoning_effort; EFFORT_STYLE=kv
+MODEL_FLAG_ALIASES=(--model)   # codex accepts -m and --model interchangeably
+
+# Reads the LIVE model/effort straight from Codex's own /status command output (never
+# header/footer/statusline). Unlike claude/pi, /status here is a plain, non-modal printout --
+# it needs no Esc/cancel -- and /model is deliberately NOT used: selecting even the already-
+# current entry there requires an Enter that can perturb session state, so it's avoided.
+# Sets DETECTED_MODEL/DETECTED_EFFORT (empty if undetectable).
+extract_after_status() {  # only the text after the LAST echoed "/status" line
+  awk '/^[[:space:]]*\/status[[:space:]]*$/{buf="";next}{buf=buf $0 "\n"}END{printf "%s",buf}'
+}
+
+count_status_echoes() { grep -cE '^[[:space:]]*/status[[:space:]]*$' || true; }
+
+detect_override() {
+  local pane="$1" before_count out="" after_marker="" after_count deadline seen line
+
+  DETECTED_MODEL=""
+  DETECTED_EFFORT=""
+
+  # Freshness is tied to a NEW "/status" echo actually having rendered (count increases),
+  # not to "some text changed" -- unrelated chrome (footer, spinner, token count) inside or
+  # outside the after-marker region must not be mistaken for a fresh response. recent-unwrapped
+  # with a generous line count is used so the earlier echo can't scroll out of view before the
+  # new one renders, which would make the count administratively "reset" to the same number.
+  # A failed baseline read must not be treated as "0 echoes seen" -- that would let an
+  # already-present /status panel look "new" the moment any later read succeeds. Skip
+  # detection entirely rather than risk accepting stale output.
+  out=$(herdr pane read "$pane" --source recent-unwrapped --lines 200 2>/dev/null) || return 0
+  before_count=$(printf '%s' "$out" | count_status_echoes)
+  herdr agent prompt "$pane" "/status" >/dev/null 2>&1 || return 0
+  seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    out=$(herdr pane read "$pane" --source recent-unwrapped --lines 200 2>/dev/null || true)
+    after_count=$(printf '%s' "$out" | count_status_echoes) || after_count=0
+    if [ "$after_count" -gt "$before_count" ]; then
+      after_marker=$(printf '%s' "$out" | extract_after_status)
+      # tr collapses a row wrapped by a narrow pane back onto one line before matching.
+      if printf '%s' "$after_marker" | tr '\n' ' ' | grep -qE 'Model:[[:space:]]+[^(]+\(reasoning'; then seen=1; break; fi
+    fi
+    command sleep 1
+  done
+  [ "$seen" = 1 ] || return 0
+  line=$(printf '%s' "$after_marker" | tr '\n' ' ' | grep -oE 'Model:[[:space:]]+[^(]+\(reasoning[[:space:]]+[A-Za-z]+') || true
+  DETECTED_MODEL=$(printf '%s' "$line" | sed -E 's/Model:[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]]*\(reasoning.*//') || true
+  DETECTED_EFFORT=$(printf '%s' "$line" | grep -oE 'reasoning[[:space:]]+[A-Za-z]+' | awk '{print $2}') || true
+  # A wrap that lands mid-identifier (not just before "(reasoning") can splice a border glyph
+  # or a line break into the model name once newlines are collapsed to spaces -- reject rather
+  # than replay a corrupted value (this can still lose a live model change at an adverse wrap
+  # point, but falling back to the old launch model is the safe failure mode here).
+  case "$DETECTED_MODEL" in *[[:space:]]*|*'│'*) DETECTED_MODEL="" ;; esac
+  case "$DETECTED_EFFORT" in minimal|low|medium|high|xhigh|max|ultra) ;; *) DETECTED_EFFORT="" ;; esac
+}
+
+sub="${1:-}"; shift || true
+case "$sub" in
+  handoff) run_handoff codex "$@" ;;
+  finish)  run_finish  codex "$@" ;;
+  *) die "usage: herdr-rotate-codex <handoff|finish> <name-or-pane> [...]" ;;
+esac

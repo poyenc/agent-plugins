@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=SCRIPTDIR/rotate-common.sh
+source "$HERE/rotate-common.sh"
+MODEL_FLAG=--model; EFFORT_FLAG=--effort; EFFORT_STYLE=flag
+
+# Sends Esc and waits for confirmation that the modal actually closed (agent_status observed
+# NOT "blocked") before returning 0. An empty/errored status is treated as still-uncertain (kept
+# polling), never as "closed" — a transient read failure must not be mistaken for a clean state.
+# Returns 1 on timeout so callers can refuse to trust or build on whatever comes next.
+close_modal() {
+  local pane="$1" st deadline=$(( SECONDS + 5 ))
+  herdr agent send-keys "$pane" escape >/dev/null 2>&1 || true
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    st=$(herdr agent get "$pane" 2>/dev/null | jq -r '.result.agent.agent_status // empty') || st=""
+    [ -n "$st" ] && [ "$st" != "blocked" ] && return 0
+    command sleep 1
+  done
+  note "modal on $pane may not have closed (status: ${st:-unknown})"
+  return 1
+}
+
+# Reads the LIVE model/effort straight from Claude Code's own /status and /effort command
+# output (never header/footer/statusline, which reflow) and cancels both with Esc, leaving
+# nothing changed. Sets DETECTED_MODEL/DETECTED_EFFORT (empty if undetectable). A defensive
+# close_modal runs BEFORE each command too, so "the modal marker is present" always means the
+# modal we just opened, never a stale one left over from something else.
+detect_override() {
+  local pane="$1" out="" deadline seen
+
+  DETECTED_MODEL=""
+  DETECTED_EFFORT=""
+
+  # Defensive pre-close: nothing has been opened by us yet here, so this modal (if any) is
+  # pre-existing, not one of ours. A CONFIRMED failure to close it still means the pane's UI
+  # state is unknown right before /status (or, if this is called from handoff, before the
+  # handoff prompt itself) gets sent -- skipping only detection would let that prompt land in
+  # the same stuck UI. Abort the whole rotation instead (bare call in resolve_and_prepare, so
+  # this propagates via set -e), matching pi's close_modal semantics.
+  close_modal "$pane" || { note "pane $pane has a stuck modal; aborting rotation"; return 1; }
+  herdr agent prompt "$pane" "/status" >/dev/null 2>&1 || return 0
+  seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
+    if printf '%s' "$out" | grep -q 'Esc to cancel'; then seen=1; break; fi
+    command sleep 1
+  done
+  if [ "$seen" = 1 ]; then
+    DETECTED_MODEL=$(printf '%s' "$out" | grep -oE 'Model:[[:space:]]+[^[:space:]]+' | head -n1 | awk '{print $2}') || true
+  fi
+  # From here on WE opened the modal -- a failure to confirm it closed leaves the target's UI
+  # state unknown right before the destructive /quit step that follows in run_finish, so this
+  # must abort the whole rotation (matching pi's close_modal semantics), not silently continue.
+  close_modal "$pane"
+
+  herdr agent prompt "$pane" "/effort" >/dev/null 2>&1 || return 0
+  out=""; seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
+    if printf '%s' "$out" | grep -q 'Enter to confirm'; then seen=1; break; fi
+    command sleep 1
+  done
+  if [ "$seen" = 1 ]; then
+    local slider; slider=$(printf '%s' "$out" | awk '
+      /▲/ { tick=$0; gsub(/─/, "-", tick); gsub(/▲/, "^", tick) }
+      /low[ \t]+medium[ \t]+high[ \t]+xhigh/ { labels=$0 }
+      END {
+        if (tick == "" || labels == "") { exit }
+        pos = index(tick, "^")
+        n = split(labels, words, /[ \t]+/)
+        best = ""; bestd = 999999; startcol = 1
+        for (i = 1; i <= n; i++) {
+          w = words[i]; if (w == "") continue
+          idx = index(substr(labels, startcol), w)
+          abscol = startcol + idx - 1
+          d = abscol - pos; if (d < 0) d = -d
+          if (d < bestd) { bestd = d; best = w }
+          startcol = abscol + length(w)
+        }
+        print best
+      }') || true
+    case "$slider" in low|medium|high|xhigh|max) DETECTED_EFFORT="$slider" ;; esac  # skip ultracode: not a --effort value
+  fi
+  close_modal "$pane"
+}
+
+sub="${1:-}"; shift || true
+case "$sub" in
+  handoff) run_handoff claude "$@" ;;
+  finish)  run_finish  claude "$@" ;;
+  *) die "usage: herdr-rotate-claude <handoff|finish> <name-or-pane> [...]" ;;
+esac
