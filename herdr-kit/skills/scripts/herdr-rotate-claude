@@ -123,15 +123,23 @@ detect_override() {
     # win under head -n1.
     local row name
     row=$(printf '%s' "$out" | grep -E '❯.*✔' | tail -n1) || true
-    # Prefer the row's OWN model identifier (the token immediately before the checkmark, e.g.
-    # "Claude-Sonnet-5[1m]") over its generic "Custom X model" description: the description only
-    # names the family ("Sonnet"), which can't distinguish between two dated versions of the same
-    # family (e.g. Sonnet 4.5 vs Sonnet 5) that would both show that same generic word -- a live
-    # switch between them would otherwise look like no change at all. The identifier's own
-    # "[1m]"-style context-window suffix is a display annotation, not part of the model name, and
-    # is stripped.
-    name=$(printf '%s' "$row" | grep -oE '[A-Za-z0-9._-]+(\[[A-Za-z0-9._-]+\])? ✔' | tail -n1) || true
-    name="${name% ✔}"
+    # Prefer the row's OWN specific model identifier (e.g. "Claude-Sonnet-5[1m]") over its
+    # generic "Custom X model" description: the description only names the family ("Sonnet"),
+    # which can't distinguish between two dated versions of the same family (e.g. Sonnet 4.5 vs
+    # Sonnet 5) that would both show that same generic word -- a live switch between them would
+    # otherwise look like no change at all. This identifier's POSITION within the row is NOT
+    # fixed relative to the checkmark, confirmed live: for one of the four standard numbered
+    # entries it's the row's own primary label immediately before "✔" (e.g. "3.
+    # Claude-Sonnet-5[1m] ✔  Custom Sonnet model"), but for a model that landed on the list some
+    # other way (e.g. via --model at launch) the row's primary label is instead a SPACE-separated
+    # display name ("5. Sonnet 5 ✔  Efficient for routine tasks (Claude-Sonnet-5[1m])") and the
+    # real identifier only appears parenthesized in the description -- a position-relative-to-"✔"
+    # extraction would grab only the trailing "5" from that display name in this case (the exact
+    # failure mode reported live: a relaunch replaying "--model 5"). Searching the whole row for
+    # this fixed "Claude-...[...]" pattern, rather than assuming its position, finds it either
+    # way. Its own "[1m]"-style context-window suffix is a display annotation, not part of the
+    # model name, and is stripped.
+    name=$(printf '%s' "$row" | grep -oE 'Claude-[A-Za-z0-9._-]+(\[[A-Za-z0-9._-]+\])?' | head -n1) || true
     name="${name%%\[*}"
     # The Default row has no such identifier column of its own -- its description instead reads
     # "Use the default model (currently Opus 5 (1M context))", so fall back to the family name

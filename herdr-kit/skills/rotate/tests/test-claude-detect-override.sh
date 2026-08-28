@@ -107,6 +107,29 @@ herdr(){
 detect_override wG:p4
 assert_eq "stale marked row (different model) does not beat the modal's own current selection" "claude-sonnet-5" "$DETECTED_MODEL"
 
+# A model that landed on the list some other way (e.g. via --model at launch, rather than being
+# one of the four standard numbered entries) gets its own row whose PRIMARY label is a
+# SPACE-separated display name ("Sonnet 5", not "Claude-Sonnet-5[1m]") -- the real identifier
+# only appears parenthesized in the description instead. Verbatim (trimmed) from a REAL live
+# probe against Claude Code v2.1.237 (herdr agent prompt + herdr pane read against a throwaway
+# agent in workspace wF). A position-relative-to-the-checkmark extraction grabs only the
+# trailing "5" from "Sonnet 5" here -- this reproduces a real reported bug (a relaunch that
+# replayed "--model 5").
+STAGE=""
+SCREEN_MODEL_LAUNCH_ENTRY=$'  Select model\n  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.\n\n    1. Default (recommended)  Use the default model (currently Opus 5 (1M context)) \xc2\xb7 $5/$25 per Mtok\n    2. Claude-Opus-5[1m]      Custom Opus model (1M context)\n    3. Claude-Sonnet-5[1m]    Custom Sonnet model (1M context)\n    4. Claude-Haiku-4.5       Custom Haiku model\n  \xe2\x9d\xaf 5. Sonnet 5 \xe2\x9c\x94             Efficient for routine tasks (Claude-Sonnet-5[1m])\n\n  \xe2\x97\x90 Medium effort \xe2\x86\x90/\xe2\x86\x92 to adjust\n\n  Enter to set as default \xc2\xb7 s to use this session only \xc2\xb7 Esc to cancel'
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) printf '%s' "$SCREEN_MODEL_LAUNCH_ENTRY" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+detect_override wG:p4
+assert_eq "a launch-time --model entry's real identifier is found in its description, not truncated to a trailing digit" "claude-sonnet-5" "$DETECTED_MODEL"
+
 # Two dated versions within the SAME family (e.g. Sonnet 4.5 vs Sonnet 5) both show the identical
 # generic "Custom Sonnet model" description -- extraction must read the row's own specific
 # identifier, not that shared description, or a live switch between them would be invisible.
