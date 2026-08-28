@@ -2,6 +2,10 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/../../scripts/rotate-common.sh"
+# verify() reads these unconditionally (not just for kind=pi) -- every real per-kind script sets
+# them at its own top, unconditionally, before anything can call verify(); this test sources
+# rotate-common.sh directly (standing in for that role), so it must do the same, up front.
+MODEL_FLAG=--model; EFFORT_FLAG=--effort; EFFORT_STYLE=flag
 PASS=0; FAIL=0
 assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; echo "    exp:[$2] act:[$3]"; FAIL=$((FAIL+1)); fi; }
 rc(){ if "$@"; then echo 0; else echo 1; fi; }
@@ -169,7 +173,15 @@ relaunch lead claude wG:p4 --model opus --verbose
 assert_eq "start kind+pane" "0" "$(rc grep -q -- '--kind claude --pane wG:p4' "$STARTLOG")"
 assert_eq "start replays flags" "0" "$(rc grep -q -- '-- --model opus --verbose' "$STARTLOG")"
 
-# verify: ready + exact argv match (incl a spaced element)
+# verify() only checks MODEL_FLAG/EFFORT_FLAG values, the same scope as pi's own branch above.
+# An earlier revision compared the WHOLE argv (an exact-suffix match tolerating a leading
+# "prefix"), reasoning that a herdr-level default config always lands there -- confirmed live,
+# but for the wrong reason: what was actually observed is this operator's own shell alias
+# (`alias claude='claude --dangerously-skip-permissions --verbose'` in ~/.bashrc, likewise for
+# codex) expanding ahead of whatever this script passes, not anything herdr itself injects.
+# That's arbitrary local shell config, not a knowable, stable schema -- this tool's job is to
+# pass launch flags through and confirm ITS OWN overrides took effect, not to gate a successful
+# relaunch on the shape of flags it doesn't manage.
 mkproc(){ jq -nc --args '{result:{process_info:{foreground_processes:[{name:"claude",argv:$ARGS.positional}]}}}' -- "$@"; }
 herdr(){
   case "$1 $2" in
@@ -179,14 +191,129 @@ herdr(){
   esac
 }
 PROC=$(mkproc claude --model "opus a" --verbose)
-assert_eq "verify match (spaced arg)" "0" "$(rc verify lead wG:p4 claude -- --model "opus a" --verbose)"
-# ambiguous split must NOT compare equal
-PROC=$(mkproc claude --model opus --verbose)
-assert_eq "verify rejects split diff" "1" "$(rc verify lead wG:p4 claude -- --model "opus --verbose")"
+assert_eq "verify match (spaced model value)" "0" "$(rc verify lead wG:p4 claude -- --model "opus a")"
+
 # not ready -> fail
 herdr(){ case "$1 $2" in "agent get") echo '{"result":{"agent":{"agent_status":"working"}}}';; *) echo "{}";; esac; }
 ROTATE_VERIFY_POLL_SECS=2
 assert_eq "verify not-ready fails" "1" "$(rc verify lead wG:p4 claude -- --model opus)"
+
+herdr(){
+  case "$1 $2" in
+    "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "pane process-info") printf '%s' "$PROC" ;;
+    *) echo "{}" ;;
+  esac
+}
+
+# An arbitrary prefix ahead of the model/effort flags (e.g. a shell alias's own flags) must NOT
+# cause a rejection -- verify() only cares whether ITS OWN flags took effect, not what preceded
+# them.
+PROC=$(mkproc claude --dangerously-skip-permissions --verbose --model opus --effort high)
+assert_eq "verify tolerates an arbitrary prefix (e.g. a shell alias's own flags)" "0" \
+  "$(rc verify lead wG:p4 claude -- --model opus --effort high)"
+
+# A genuinely corrupted model or effort value must still be caught.
+PROC=$(mkproc claude --dangerously-skip-permissions --verbose --model medium --effort high)
+assert_eq "verify still catches a real model value corruption" "1" \
+  "$(rc verify lead wG:p4 claude -- --model opus --effort high)"
+PROC=$(mkproc claude --model opus --effort low)
+assert_eq "verify still catches a real effort value corruption" "1" \
+  "$(rc verify lead wG:p4 claude -- --model opus --effort high)"
+
+# A LATER, conflicting occurrence of the same flag must also be caught -- most real CLI arg
+# parsers apply last-flag-wins, so a trailing "--model medium" after the correct-looking
+# "--model opus" would mean the effective model is actually "medium", not what was intended.
+PROC=$(mkproc claude --model opus --model medium)
+assert_eq "verify rejects a later conflicting occurrence of the same flag (last-wins)" "1" \
+  "$(rc verify lead wG:p4 claude -- --model opus)"
+
+# A byte-identical intended/actual model must always pass, even when the flag repeats with
+# different values along the way -- both sides resolve to the same LAST value.
+PROC=$(mkproc claude --model sonnet --model opus)
+assert_eq "verify accepts byte-identical intended/actual even with a repeated flag" "0" \
+  "$(rc verify lead wG:p4 claude -- --model opus)"
+
+# Flags/positionals this tool doesn't manage (a resume flag surviving, an initial-prompt
+# positional, anything else in the live argv) are simply not this check's concern -- verify()'s
+# only job is confirming its own model/effort overrides took effect, not gating a successful
+# relaunch on anything else present.
+PROC=$(mkproc claude --resume old-session --model opus hello)
+assert_eq "verify does not block on flags/positionals it doesn't manage" "0" \
+  "$(rc verify lead wG:p4 claude -- --model opus)"
+
+# Neither model nor effort was ever intended (this rotation never overrode either) -- nothing of
+# ours to check, so this must pass, not fail closed (unlike pi's branch above, which fails
+# closed only because it has no OTHER verification signal at all for that kind).
+PROC=$(mkproc claude --verbose)
+assert_eq "verify passes when neither model nor effort was ever intended" "0" \
+  "$(rc verify lead wG:p4 claude -- --verbose)"
+
+# codex: alias spelling (-m vs --model) and kv-style effort must both be recognized, on the
+# intended side and the live side.
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=(-m) EFFORT_FLAG=model_reasoning_effort EFFORT_STYLE=kv
+PROC=$(jq -nc --args '{result:{process_info:{foreground_processes:[{name:"codex",argv:$ARGS.positional}]}}}' -- codex --model opus -c model_reasoning_effort=high)
+assert_eq "verify matches codex's alias spelling + kv effort" "0" \
+  "$(rc verify lead wG:p4 codex -- -m opus -c model_reasoning_effort=high)"
+
+PROC=$(jq -nc --args '{result:{process_info:{foreground_processes:[{name:"codex",argv:$ARGS.positional}]}}}' -- codex --model opus -m medium)
+assert_eq "verify rejects a later conflicting occurrence through a DIFFERENT alias spelling" "1" \
+  "$(rc verify lead wG:p4 codex -- --model opus)"
+
+PROC=$(jq -nc --args '{result:{process_info:{foreground_processes:[{name:"codex",argv:$ARGS.positional}]}}}' -- codex -c model_reasoning_effort=low -c model_reasoning_effort=high)
+assert_eq "verify rejects a later conflicting kv effort value" "1" \
+  "$(rc verify lead wG:p4 codex -- -c model_reasoning_effort=low)"
+
+PROC=$(jq -nc --args '{result:{process_info:{foreground_processes:[{name:"codex",argv:$ARGS.positional}]}}}' -- codex -mopus -m medium)
+assert_eq "verify rejects a later conflicting occurrence through codex's attached -mVALUE form" "1" \
+  "$(rc verify lead wG:p4 codex -- -mopus)"
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=() EFFORT_FLAG=--effort EFFORT_STYLE=flag
+
+PROC=$(mkproc claude --model=opus --model medium)
+assert_eq "verify rejects a later conflicting model when the intended one used inline --model=value" "1" \
+  "$(rc verify lead wG:p4 claude -- --model=opus)"
+
+# value_of_flag (used directly by pi's verify branch and by run_finish's pi precheck) must also
+# resolve to the LAST occurrence, not the first -- a repeated flag's real, effective value is
+# whichever occurrence a genuine CLI parser would apply last.
+assert_eq "value_of_flag returns the last occurrence" "opus" "$(value_of_flag --model claude --model sonnet --model opus)"
+assert_eq "value_of_flag empty when the flag never appears" "" "$(value_of_flag --model claude --verbose)"
+
+# pi's own accepted "--flag=value" inline form must be recognized too, not just the two-token
+# "--flag value" form -- a value_of_flag miss here would make pi's verify/precheck logic treat a
+# genuinely-set model/effort as absent.
+assert_eq "value_of_flag recognizes pi's inline --model=value form" "opus" "$(value_of_flag --model claude --model=opus --verbose)"
+
+# value_of_flag must stop at a literal "--": nothing past it is a flag to any of these CLIs (see
+# strip_context_flags), so positional data on the far side -- e.g. a trailing initial-prompt
+# argument that happens to contain text shaped like a flag -- must never be misread as a later
+# occurrence.
+assert_eq "value_of_flag stops at --" "opus" "$(value_of_flag --model claude --model opus -- --model=wrong)"
+
+# value_of_flag_any: alias-aware, same last-occurrence-wins semantics across ALL spellings
+# combined -- a repeated flag's real, effective value doesn't care which alias each occurrence
+# used, only the order.
+assert_eq "value_of_flag_any returns the last occurrence across alias spellings" "medium" \
+  "$(value_of_flag_any -m --model -- codex --model opus -m medium)"
+assert_eq "value_of_flag_any recognizes the attached short-alias form" "opus" \
+  "$(value_of_flag_any -m --model -- codex -mopus)"
+assert_eq "value_of_flag_any empty when neither spelling appears" "" \
+  "$(value_of_flag_any -m --model -- codex --verbose)"
+
+# value_of_kv: codex's own "-c key=value" convention, last-occurrence-wins.
+assert_eq "value_of_kv returns the last occurrence" "high" \
+  "$(value_of_kv model_reasoning_effort codex -c model_reasoning_effort=low -c model_reasoning_effort=high)"
+assert_eq "value_of_kv empty when the key never appears" "" \
+  "$(value_of_kv model_reasoning_effort codex --verbose)"
+
+# value_of_kv must also recognize codex's real, valid ATTACHED "-cKEY=VALUE" form (no space) --
+# replace_or_append_kv (the write path) already recognizes this (confirmed live against the
+# installed codex binary); value_of_kv (the read path) must match, or a codex agent originally
+# launched with this form silently can't have its effort changes detected at all.
+assert_eq "value_of_kv recognizes codex's attached -cKEY=VALUE form" "low" \
+  "$(value_of_kv model_reasoning_effort -cmodel_reasoning_effort=low --verbose)"
+assert_eq "value_of_kv: last occurrence wins across mixed two-token/attached forms" "high" \
+  "$(value_of_kv model_reasoning_effort -c model_reasoning_effort=low -cmodel_reasoning_effort=high)"
 
 # pi verify: if neither the captured argv nor a live detection ever produced a model/effort
 # to check against, "intended" has nothing to compare the fresh session's live state to --
@@ -227,6 +354,224 @@ assert_eq "explicit override wins over detection" "1" "$(printf '%s\n' "${BASE_F
 assert_eq "missing field filled by detection"     "1" "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'high')"
 assert_eq "not-overwritten field absent"          "0" "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'should-not-be-used')"
 unset -f detect_override
+
+# resolve_and_prepare must NOT feed a detected value into apply_override when it's identical to
+# what the original argv already had -- BASE_FLAGS must come out byte-for-byte unchanged in that
+# case (per docs/superpowers/specs/2026-08-28-herdr-rotate-verify-override-design.md, Decision 3).
+MODEL_FLAG=--model EFFORT_FLAG=--effort EFFORT_STYLE=flag
+MOCK_AGENTS_NOCHANGE='{"result":{"agents":[{"agent":"claude","pane_id":"wG:p4","name":"lead"}]}}'
+MOCK_PROC_NOCHANGE=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"claude",argv:["claude","--model","haiku","--effort","medium"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_NOCHANGE";; "pane process-info") printf '%s' "$MOCK_PROC_NOCHANGE";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="haiku"; DETECTED_EFFORT="medium"; }   # identical to the launch argv
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
+assert_eq "no-op detection leaves BASE_FLAGS byte-for-byte unchanged" "--model haiku --effort medium" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# A genuinely CHANGED live value (the user ran /effort mid-session) must still be applied, and
+# replace the original in place, not append a duplicate.
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_NOCHANGE";; "pane process-info") printf '%s' "$MOCK_PROC_NOCHANGE";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="haiku"; DETECTED_EFFORT="high"; }   # effort changed live
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
+assert_eq "a genuinely changed detected effort is applied, replacing in place" "--model haiku --effort high" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# The original argv had NO --model flag at all (implicit default) -- detection resolving to
+# SOME concrete model must NOT synthesize an explicit --model flag; there's nothing to compare
+# it against, so this is treated as "can't tell, don't touch," not "a change happened."
+MOCK_PROC_NOFLAG=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"claude",argv:["claude","--verbose"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_NOCHANGE";; "pane process-info") printf '%s' "$MOCK_PROC_NOFLAG";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="sonnet"; DETECTED_EFFORT=""; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
+assert_eq "no original model flag: detection never synthesizes one" "--verbose" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# An EXPLICIT --model/--effort passed to finish always applies, even if it happens to equal the
+# default already present -- it's a direct, deliberate ask, not a detection result, so it is
+# never subject to the differs-from-default gate.
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_NOCHANGE";; "pane process-info") printf '%s' "$MOCK_PROC_NOCHANGE";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL="haiku"; OVERRIDE_EFFORT=""   # explicit --model haiku, same as default
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
+assert_eq "explicit override always applies even when it matches the default" "--model haiku --effort medium" "${BASE_FLAGS[*]}"
+MODEL_FLAG=--model EFFORT_FLAG=--effort EFFORT_STYLE=flag
+
+# End-to-end: a codex agent originally launched with the attached -cKEY=VALUE effort form must
+# still have a genuine live effort CHANGE detected and applied on rotation -- this silently
+# failed before value_of_kv's attached-form fix (default_effort parsed as empty, so the
+# differs-from-default gate never fired).
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=(-m) EFFORT_FLAG=model_reasoning_effort EFFORT_STYLE=kv
+MOCK_AGENTS_CODEX_ATTACHED='{"result":{"agents":[{"agent":"codex","pane_id":"wG:p4","name":"lead"}]}}'
+MOCK_PROC_CODEX_ATTACHED=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"codex",argv:["codex","--model","opus","-cmodel_reasoning_effort=low"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CODEX_ATTACHED";; "pane process-info") printf '%s' "$MOCK_PROC_CODEX_ATTACHED";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="opus"; DETECTED_EFFORT="high"; }   # genuinely changed live
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare codex lead
+assert_eq "codex attached-kv-form: a genuinely changed live effort is detected and applied" "1" \
+  "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'model_reasoning_effort=high')"
+unset -f detect_override
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=() EFFORT_FLAG=--effort EFFORT_STYLE=flag
+
+# pi: capture_argv is ALWAYS empty (process.title rewrite hides pi's real launch flags -- see
+# capture_argv's comment and verify()'s pi branch), so default_model/default_effort are always
+# empty for this kind -- the general differs-from-default gate would therefore never promote
+# ANYTHING, leaving OVERRIDE_MODEL/OVERRIDE_EFFORT empty and tripping run_finish's pi preflight
+# on every rotation. Any detected value must be promoted unconditionally for pi instead.
+MODEL_FLAG=--model EFFORT_FLAG=--thinking EFFORT_STYLE=flag
+MOCK_AGENTS_PI='{"result":{"agents":[{"agent":"pi","pane_id":"wG:p7","name":"worker"}]}}'
+MOCK_PROC_PI_BARE=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"pi",argv:["pi"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_PI";; "pane process-info") printf '%s' "$MOCK_PROC_PI_BARE";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="amd-gateway/gpt-5.6-terra"; DETECTED_EFFORT="high"; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare pi worker
+assert_eq "pi: detected model is promoted despite an always-empty default" "1" \
+  "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'amd-gateway/gpt-5.6-terra')"
+assert_eq "pi: detected effort is promoted despite an always-empty default" "1" \
+  "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'high')"
+unset -f detect_override
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=() EFFORT_FLAG=--effort EFFORT_STYLE=flag
+
+# claude's model comparison is exact-match only (no substring/containment tolerance): a launch
+# using a bare alias ("sonnet") vs. a live session that now shows a full identifier
+# ("claude-sonnet-5") for the SAME underlying model is treated as a change -- there is no way to
+# tell "same model, different spelling" apart from "different model, coincidentally overlapping
+# name" using string containment alone (confirmed by two prior containment-based designs both
+# being found unsafe on review), so this errs toward "changed" rather than silently keeping a
+# stale alias.
+MOCK_AGENTS_CLAUDE_FULL='{"result":{"agents":[{"agent":"claude","pane_id":"wG:p4","name":"lead"}]}}'
+MOCK_PROC_CLAUDE_ALIAS=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"claude",argv:["claude","--model","sonnet","--effort","medium"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CLAUDE_FULL";; "pane process-info") printf '%s' "$MOCK_PROC_CLAUDE_ALIAS";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="claude-sonnet-5"; DETECTED_EFFORT="medium"; }   # same model, more specific spelling
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
+assert_eq "claude: bare-alias default vs a more specific detected spelling is treated as changed" \
+  "--model claude-sonnet-5 --effort medium" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# The same full-name-vs-alias tolerance must NOT mask a genuine model change (opus -> sonnet).
+detect_override(){ DETECTED_MODEL="sonnet"; DETECTED_EFFORT="medium"; }
+MOCK_PROC_CLAUDE_OPUS=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"claude",argv:["claude","--model","opus","--effort","medium"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CLAUDE_FULL";; "pane process-info") printf '%s' "$MOCK_PROC_CLAUDE_OPUS";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
+assert_eq "claude: a genuine model change (opus -> sonnet) is still detected and applied" \
+  "--model sonnet --effort medium" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# The full-name-vs-alias tolerance must NOT mask a genuine version change WITHIN the same
+# family: two specific dated identifiers (Sonnet 4.5 vs Sonnet 5) are not substrings of each
+# other, so this must still be treated as changed even though both are "Sonnet".
+detect_override(){ DETECTED_MODEL="claude-sonnet-5"; DETECTED_EFFORT="medium"; }
+MOCK_PROC_CLAUDE_SONNET45=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"claude",argv:["claude","--model","claude-sonnet-4-5","--effort","medium"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CLAUDE_FULL";; "pane process-info") printf '%s' "$MOCK_PROC_CLAUDE_SONNET45";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
+assert_eq "claude: a same-family version change (sonnet-4-5 -> sonnet-5) is still detected and applied" \
+  "--model claude-sonnet-5 --effort medium" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# Model comparison is exact-match for every kind (see the claude tests above) -- a value that is
+# merely a PREFIX/substring of the default must still be treated as a genuinely different model.
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=(-m) EFFORT_FLAG=model_reasoning_effort EFFORT_STYLE=kv
+MOCK_AGENTS_CODEX_PREFIX='{"result":{"agents":[{"agent":"codex","pane_id":"wG:p4","name":"lead"}]}}'
+MOCK_PROC_CODEX_PREFIX=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"codex","argv":["codex","--model","gpt-5.6-terra-v2","-c","model_reasoning_effort=medium"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CODEX_PREFIX";; "pane process-info") printf '%s' "$MOCK_PROC_CODEX_PREFIX";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="gpt-5.6-terra"; DETECTED_EFFORT="medium"; }   # a PREFIX of the default, but a genuinely different model
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare codex lead
+assert_eq "codex: a detected value that is a substring of the default is still treated as changed" "1" \
+  "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'gpt-5.6-terra')"
+unset -f detect_override
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=() EFFORT_FLAG=--effort EFFORT_STYLE=flag
+
+# TOML permits (but doesn't require) quoting a string value -- `key="low"` and `key=low` are the
+# same value (confirmed live: `codex -c 'model_reasoning_effort="low"' features list` and the
+# unquoted form produce identical output). Live detection always reports the bare, unquoted
+# level -- a launch that quoted its value must not look "different" just because of that spelling.
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=(-m) EFFORT_FLAG=model_reasoning_effort EFFORT_STYLE=kv
+MOCK_AGENTS_CODEX_QUOTED='{"result":{"agents":[{"agent":"codex","pane_id":"wG:p4","name":"lead"}]}}'
+MOCK_PROC_CODEX_QUOTED=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"codex",argv:["codex","--model","opus","-c","model_reasoning_effort=\"low\""]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CODEX_QUOTED";; "pane process-info") printf '%s' "$MOCK_PROC_CODEX_QUOTED";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="opus"; DETECTED_EFFORT="low"; }   # same value, unquoted spelling
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare codex lead
+assert_eq "codex: quoted TOML effort vs detection's unquoted spelling of the SAME value is not a change" \
+  "--model opus -c model_reasoning_effort=\"low\"" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# Same tolerance for TOML's other equally valid string-quoting spelling: single quotes.
+MOCK_PROC_CODEX_SINGLEQUOTED=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"codex",argv:["codex","--model","opus","-c","model_reasoning_effort='"'"'low'"'"'"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CODEX_QUOTED";; "pane process-info") printf '%s' "$MOCK_PROC_CODEX_SINGLEQUOTED";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="opus"; DETECTED_EFFORT="low"; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare codex lead
+assert_eq "codex: single-quoted TOML effort vs detection's unquoted spelling of the SAME value is not a change" \
+  "--model opus -c model_reasoning_effort='low'" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# Trailing whitespace after the (quoted) value must not be swallowed into the comparison value --
+# a naive greedy capture would otherwise leave the quotes (and space) unstripped, making an
+# unchanged launch look "different" and get rewritten unnecessarily.
+MOCK_PROC_CODEX_TRAILWS=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"codex",argv:["codex","--model","opus","-c","model_reasoning_effort = \"low\" "]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CODEX_QUOTED";; "pane process-info") printf '%s' "$MOCK_PROC_CODEX_TRAILWS";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="opus"; DETECTED_EFFORT="low"; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare codex lead
+assert_eq "codex: trailing whitespace after a quoted default is not a change" \
+  "--model opus -c model_reasoning_effort = \"low\" " "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# TOML also permits (but doesn't require) whitespace around "=" -- a launch that spelled it this
+# way must be recognized both for reading its default (so a genuine live change is still
+# detected) and for replacing it in place (so an explicit override doesn't append a duplicate).
+MOCK_PROC_CODEX_SPACED=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"codex",argv:["codex","--model","opus","-c","model_reasoning_effort = \"low\""]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CODEX_QUOTED";; "pane process-info") printf '%s' "$MOCK_PROC_CODEX_SPACED";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="opus"; DETECTED_EFFORT="high"; }   # genuinely changed live
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare codex lead
+assert_eq "codex: a genuine change past a whitespace-around-= default is detected and replaces in place (no duplicate)" \
+  "--model opus -c model_reasoning_effort=high" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# The quote-tolerant comparison must NOT mask a genuine effort change.
+detect_override(){ DETECTED_MODEL="opus"; DETECTED_EFFORT="high"; }   # genuinely changed live
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CODEX_QUOTED";; "pane process-info") printf '%s' "$MOCK_PROC_CODEX_QUOTED";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare codex lead
+assert_eq "codex: a genuine effort change is still detected past a quoted default" \
+  "--model opus -c model_reasoning_effort=high" "${BASE_FLAGS[*]}"
+unset -f detect_override
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=() EFFORT_FLAG=--effort EFFORT_STYLE=flag
+
+# pi: an explicit override for ONE field must survive alongside the OTHER field being filled by
+# detection -- only the "both absent" case was covered before, which would not have caught a
+# regression that dropped either half of the pi bypass's own guards.
+MODEL_FLAG=--model EFFORT_FLAG=--thinking EFFORT_STYLE=flag
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_PI";; "pane process-info") printf '%s' "$MOCK_PROC_PI_BARE";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="should-not-be-used"; DETECTED_EFFORT="high"; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL="amd-gateway/gpt-5.6-terra"; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare pi worker
+assert_eq "pi: explicit model override survives alongside detection filling effort" "1" \
+  "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'amd-gateway/gpt-5.6-terra')"
+assert_eq "pi: detection does not override the explicit model" "0" \
+  "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'should-not-be-used')"
+assert_eq "pi: detection still fills the effort left unset" "1" \
+  "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'high')"
+unset -f detect_override
+
+detect_override(){ DETECTED_MODEL="amd-gateway/gpt-5.6-terra"; DETECTED_EFFORT="should-not-be-used"; }
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_PI";; "pane process-info") printf '%s' "$MOCK_PROC_PI_BARE";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT="high"
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare pi worker
+assert_eq "pi: explicit effort override survives alongside detection filling model" "1" \
+  "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'high')"
+assert_eq "pi: detection does not override the explicit effort" "0" \
+  "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'should-not-be-used')"
+assert_eq "pi: detection still fills the model left unset" "1" \
+  "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'amd-gateway/gpt-5.6-terra')"
+unset -f detect_override
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=() EFFORT_FLAG=--effort EFFORT_STYLE=flag
 
 # run_handoff / run_finish early-exit paths (no herdr contact needed; guard/parse fail first)
 MODEL_FLAG=--model EFFORT_FLAG=--effort EFFORT_STYLE=flag

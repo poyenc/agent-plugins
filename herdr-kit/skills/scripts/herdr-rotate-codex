@@ -3,8 +3,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=SCRIPTDIR/rotate-common.sh
 source "$HERE/rotate-common.sh"
-MODEL_FLAG=-m; EFFORT_FLAG=model_reasoning_effort; EFFORT_STYLE=kv
-MODEL_FLAG_ALIASES=(--model)   # codex accepts -m and --model interchangeably
+MODEL_FLAG=--model; EFFORT_FLAG=model_reasoning_effort; EFFORT_STYLE=kv
+MODEL_FLAG_ALIASES=(-m)   # codex also accepts -m; this tool only ever WRITES --model, never -m
+                          # (see replace_or_append_flag: -m here is matched to find an existing
+                          # occurrence to replace, never emitted)
 
 # Reads the LIVE model/effort straight from Codex's own /status command output (never
 # header/footer/statusline). Unlike claude/pi, /status here is a plain, non-modal printout --

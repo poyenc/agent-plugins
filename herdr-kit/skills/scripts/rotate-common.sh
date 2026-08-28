@@ -69,61 +69,79 @@ strip_context_flags() {
   done
 }
 
-# flag: the canonical spelling to append when absent. Trailing args: other accepted spellings
-# of the SAME flag (e.g. codex's -m is also accepted as --model) -- a match on any of them is
-# replaced IN PLACE, keeping the spelling actually found, so a launch argv using the alias
-# doesn't end up with both the alias and the canonical flag present at once.
+# flag: the canonical (long) spelling to write. Trailing args: other accepted spellings of the
+# SAME flag (e.g. codex's -m is also accepted as --model) -- matched only to find an EXISTING
+# occurrence to replace; the replacement itself always writes the canonical "$flag $val" form,
+# never the spelling that was found, and never a second, duplicate occurrence alongside the
+# original. If the flag repeats in the input, only the LAST occurrence (the one a real CLI's own
+# last-flag-wins parsing would actually apply) is touched -- earlier occurrences are left exactly
+# as the user wrote them.
 replace_or_append_flag() {
   local -n _arr="$1"; local flag="$2" val="$3"; shift 3
   local -a aliases=("$flag" "$@")
-  local out=() n=${#_arr[@]} j=0 found=0 a matched mode stop=0 insert_at=-1
+  local n=${#_arr[@]} j a skip
+  local boundary=$n last_idx=-1 last_skip=0
+  j=0
   while [ "$j" -lt "$n" ]; do
     # Past "--", nothing is a flag any more (see strip_context_flags) -- stop matching so an
     # override can't be inserted into, or mistakenly match, positional data on the far side.
-    if [ "$stop" = 1 ]; then out+=("${_arr[$j]}"); j=$((j+1)); continue; fi
-    if [ "${_arr[$j]}" = "--" ]; then
-      stop=1; insert_at=${#out[@]}; out+=("--"); j=$((j+1)); continue
-    fi
-    matched=""; mode=""
+    if [ "${_arr[$j]}" = "--" ]; then boundary=$j; break; fi
+    skip=1
     for a in "${aliases[@]}"; do
-      if [ "${_arr[$j]}" = "$a" ]; then matched="$a"; mode=space; break
-      elif [[ "${_arr[$j]}" == "$a="* ]]; then matched="$a"; mode=eq; break
+      if [ "${_arr[$j]}" = "$a" ]; then last_idx=$j; last_skip=2; skip=2; break
+      elif [[ "${_arr[$j]}" == "$a="* ]]; then last_idx=$j; last_skip=1; break
       # A short single-dash alias (e.g. codex's -m) also accepts an ATTACHED value with no
       # separator (-mVALUE) -- long --flags don't (they require --flag=VALUE), so this only
       # applies to exactly "-X" spellings.
       elif [ "${#a}" -eq 2 ] && [[ "$a" == -[^-]* ]] && [[ "${_arr[$j]}" == "$a"?* ]]; then
-        matched="$a"; mode=attached; break
+        last_idx=$j; last_skip=1; break
       fi
     done
-    case "$mode" in
-      eq)       out+=("${matched}=${val}"); j=$((j+1)); found=1 ;;
-      attached) out+=("${matched}${val}");  j=$((j+1)); found=1 ;;
-      space)    out+=("$matched" "$val");   j=$((j+2)); found=1 ;;
-      *)        out+=("${_arr[$j]}"); j=$((j+1)) ;;
-    esac
+    # A "space"-mode match consumes its value token too -- advance past it so the value is
+    # never independently re-scanned as if it were another occurrence of the flag.
+    j=$((j+skip))
   done
-  if [ "$found" != 1 ]; then
-    if [ "$insert_at" -ge 0 ]; then out=("${out[@]:0:$insert_at}" "$flag" "$val" "${out[@]:$insert_at}")
-    else out+=("$flag" "$val"); fi
+  local -a out=()
+  if [ "$last_idx" -ge 0 ]; then
+    out=("${_arr[@]:0:$last_idx}" "$flag" "$val" "${_arr[@]:$((last_idx+last_skip))}")
+  else
+    out=("${_arr[@]:0:$boundary}" "$flag" "$val" "${_arr[@]:$boundary}")
   fi
   _arr=("${out[@]}")
 }
 
+# Same last-occurrence-only, replace-in-place behavior as replace_or_append_flag, for codex's
+# "-c key=value" kv encoding. -c/--config are two spellings of the SAME flag (confirmed via
+# `codex --help`: "-c, --config <key=value>" documented as one entry), so this recognizes all
+# four forms codex's own CLI accepts as real, semantically-correct spellings: the two-token
+# "-c key=value" / "--config key=value", and the ATTACHED single-token "-ckey=value" (no space)
+# / "--config=key=value" (long-flag "=" form) -- confirmed live against the installed codex
+# binary. (A short-flag "-c=key=value" form is NOT included: clap does not strip "=" for short
+# options, so that token's value would literally be "=key=value", setting the wrong TOML key --
+# not a real alternate spelling.) Each form also tolerates TOML's own optional whitespace around
+# "=" AND around the whole assignment (e.g. "key = value", " key=value ", confirmed live) -- the
+# match only needs to detect an EXISTING occurrence to replace; whatever it looked like, the
+# replacement is always written in the canonical "-c key=value" form, no whitespace. An
+# attached-form match is spliced out alone (skip=1), not as a pair, since there's no separate
+# value token to remove.
 replace_or_append_kv() {
   # shellcheck disable=SC2178
-  local -n _arr="$1"; local key="$2" val="$3" out=() n=${#_arr[@]} j=0 found=0 stop=0 insert_at=-1
-  while [ "$j" -lt "$n" ]; do
-    if [ "$stop" = 1 ]; then out+=("${_arr[$j]}"); j=$((j+1)); continue; fi
-    if [ "${_arr[$j]}" = "--" ]; then
-      stop=1; insert_at=${#out[@]}; out+=("--"); j=$((j+1)); continue
+  local -n _arr="$1"; local key="$2" val="$3"
+  local n=${#_arr[@]} j
+  local boundary=$n last_idx=-1 last_skip=0
+  for (( j=0; j<n; j++ )); do
+    if [ "${_arr[$j]}" = "--" ]; then boundary=$j; break; fi
+    if { [ "${_arr[$j]}" = "-c" ] || [ "${_arr[$j]}" = "--config" ]; } && [ $((j+1)) -lt "$n" ] && [[ "${_arr[$((j+1))]}" =~ ^[[:space:]]*${key}[[:space:]]*=[[:space:]]* ]]; then
+      last_idx=$j; last_skip=2
+    elif [[ "${_arr[$j]}" =~ ^-c[[:space:]]*${key}[[:space:]]*=[[:space:]]* ]] || [[ "${_arr[$j]}" =~ ^--config=[[:space:]]*${key}[[:space:]]*=[[:space:]]* ]]; then
+      last_idx=$j; last_skip=1
     fi
-    if [ "${_arr[$j]}" = "-c" ] && [ $((j+1)) -lt "$n" ] && [[ "${_arr[$((j+1))]}" == "$key="* ]]; then
-      out+=("-c" "$key=$val"); j=$((j+2)); found=1
-    else out+=("${_arr[$j]}"); j=$((j+1)); fi
   done
-  if [ "$found" != 1 ]; then
-    if [ "$insert_at" -ge 0 ]; then out=("${out[@]:0:$insert_at}" "-c" "$key=$val" "${out[@]:$insert_at}")
-    else out+=("-c" "$key=$val"); fi
+  local -a out=()
+  if [ "$last_idx" -ge 0 ]; then
+    out=("${_arr[@]:0:$last_idx}" "-c" "$key=$val" "${_arr[@]:$((last_idx+last_skip))}")
+  else
+    out=("${_arr[@]:0:$boundary}" "-c" "$key=$val" "${_arr[@]:$boundary}")
   fi
   _arr=("${out[@]}")
 }
@@ -284,14 +302,93 @@ relaunch() {
 }
 
 # Extracts the value following the given flag from an argv array (empty if absent/valueless).
-value_of_flag() {  # $1=flag, remaining args = argv to search
+# Returns the LAST occurrence's value, not the first: a repeated flag in a real CLI's own argv
+# parsing is resolved by whichever occurrence comes last, so "the value this would actually take
+# effect as" and "the first one found scanning forward" are only the same thing when the flag
+# isn't repeated at all. Getting this wrong here previously produced a genuine false rejection in
+# verify(): intended and actual argv were BYTE-IDENTICAL (both "--model sonnet --model opus"), yet
+# verify() failed because it compared the first occurrence of one side against the last of the
+# other. Empty if the flag never appears.
+# $1=flag, remaining args = argv to search. Recognizes "--flag value" (two tokens) and
+# "--flag=value" (one token, pi's own accepted inline form) -- prints the LAST such occurrence's
+# value, empty if the flag never appears. Stops at a literal "--": nothing past it is a flag to
+# any of these CLIs (see strip_context_flags), so positional data on the far side (e.g. an
+# initial-prompt argument) must never be misread as a later occurrence of this flag.
+value_of_flag() {
   local flag="$1"; shift
   local -a arr=("$@")
-  local n=${#arr[@]} j=0
-  while [ "$j" -lt "$n" ]; do
-    [ "${arr[$j]}" = "$flag" ] && [ $((j+1)) -lt "$n" ] && { printf '%s' "${arr[$((j+1))]}"; return 0; }
-    j=$((j+1))
+  local n=${#arr[@]} j val=""
+  for (( j=0; j<n; j++ )); do
+    [ "${arr[$j]}" = "--" ] && break
+    if [ "${arr[$j]}" = "$flag" ] && [ $((j+1)) -lt "$n" ]; then val="${arr[$((j+1))]}"
+    elif [[ "${arr[$j]}" == "$flag="* ]]; then val="${arr[$j]#$flag=}"
+    fi
   done
+  printf '%s' "$val"
+}
+
+# Same as value_of_flag, but also matches alias spellings of the SAME flag (e.g. codex's -m is
+# also accepted as --model) -- returns whichever occurrence comes LAST across ALL of them
+# combined, same last-flag-wins reasoning as value_of_flag itself (a real CLI parser doesn't
+# care which alias a repeated flag used, only the order). Also recognizes a short single-dash
+# alias's ATTACHED form (-mVALUE, no separator), matching replace_or_append_flag's own
+# understanding of what codex's -m accepts.
+# $1=flag, "--"-terminated list of aliases, then argv to search.
+value_of_flag_any() {
+  local -a flags=("$1"); shift
+  while [ "${1:-}" != "--" ]; do flags+=("$1"); shift; done
+  shift
+  local -a arr=("$@")
+  local n=${#arr[@]} j val="" f
+  for (( j=0; j<n; j++ )); do
+    [ "${arr[$j]}" = "--" ] && break
+    for f in "${flags[@]}"; do
+      if [ "${arr[$j]}" = "$f" ] && [ $((j+1)) -lt "$n" ]; then val="${arr[$((j+1))]}"; break
+      elif [[ "${arr[$j]}" == "$f="* ]]; then val="${arr[$j]#$f=}"; break
+      elif [ "${#f}" -eq 2 ] && [[ "$f" == -[^-]* ]] && [[ "${arr[$j]}" == "$f"?* ]]; then val="${arr[$j]#$f}"; break
+      fi
+    done
+  done
+  printf '%s' "$val"
+}
+
+# Extracts the LAST value assigned to a kv-encoded flag (codex's "-c/--config key=value"
+# convention, e.g. reasoning effort) -- empty if the key never appears. Mirrors
+# replace_or_append_kv's own understanding of this encoding, including all four forms recognized
+# there ("-c key=value", "--config key=value", "-ckey=value", "--config=key=value") and its
+# whitespace tolerance around "=" and around the whole assignment -- see that function's comment
+# for why "-c=key=value" is deliberately excluded. $1=key, remaining args = argv to search.
+value_of_kv() {
+  local key="$1"; shift
+  local -a arr=("$@")
+  local n=${#arr[@]} j val=""
+  for (( j=0; j<n; j++ )); do
+    [ "${arr[$j]}" = "--" ] && break
+    if { [ "${arr[$j]}" = "-c" ] || [ "${arr[$j]}" = "--config" ]; } && [ $((j+1)) -lt "$n" ] && [[ "${arr[$((j+1))]}" =~ ^[[:space:]]*${key}[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+      val="${BASH_REMATCH[1]}"
+    elif [[ "${arr[$j]}" =~ ^-c[[:space:]]*${key}[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+      val="${BASH_REMATCH[1]}"
+    elif [[ "${arr[$j]}" =~ ^--config=[[:space:]]*${key}[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+      val="${BASH_REMATCH[1]}"
+    fi
+  done
+  # The capture above is greedy to end-of-string, so it also swallows any TRAILING whitespace
+  # after the value (e.g. `key = "low" `, confirmed live) -- trim it before quote-stripping, or a
+  # trailing space left inside the quotes would make the pattern below fail to match and leave
+  # the quotes (and that space) in place. Standard bash idiom: strip everything up to and
+  # including the last non-whitespace char to isolate just the trailing whitespace run, then
+  # remove that suffix from val.
+  val="${val%"${val##*[![:space:]]}"}"
+  # TOML permits (but doesn't require) quoting a string value with either single or double
+  # quotes (confirmed live: `codex -c 'k = "v"'` and `codex -c "k='v'"` both accepted) -- strip
+  # one matching pair so callers doing a plain string comparison (verify(), resolve_and_prepare's
+  # differs-from-default gate) see the SAME value regardless of which of these equivalent
+  # spellings the launch argv happened to use.
+  case "$val" in
+    \"*\") val="${val#\"}"; val="${val%\"}" ;;
+    \'*\') val="${val#\'}"; val="${val%\'}" ;;
+  esac
+  printf '%s' "$val"
 }
 
 verify() {
@@ -341,17 +438,38 @@ verify() {
     return 0
   fi
 
+  # Only model/effort are ever verified here, the same scope as pi's branch above. Earlier
+  # revisions of this check compared the ENTIRE argv (an exact-suffix match tolerating a leading
+  # "prefix"), reasoning that a herdr-level default config always lands there -- confirmed live,
+  # but for the wrong reason: what was actually observed is this operator's own shell alias
+  # (`alias claude='claude --dangerously-skip-permissions --verbose'` in ~/.bashrc, likewise for
+  # codex) expanding ahead of whatever this script passes, not anything herdr itself injects.
+  # Since that prefix is arbitrary local shell configuration, not a knowable, stable schema, this
+  # tool's job is to pass the launch flags through and confirm ITS OWN overrides took effect --
+  # not to gate a successful relaunch on the presence/shape of flags it doesn't manage.
   local -a BASE_FLAGS=()
   capture_argv "$pane" "$kind"
-  if [ "${#BASE_FLAGS[@]}" -ne "${#intended[@]}" ]; then
-    note "verify: argv length ${#BASE_FLAGS[@]} != ${#intended[@]}"; return 1
+  local want_model want_effort actual_model actual_effort
+  want_model=$(value_of_flag_any "$MODEL_FLAG" "${MODEL_FLAG_ALIASES[@]}" -- "${intended[@]}")
+  actual_model=$(value_of_flag_any "$MODEL_FLAG" "${MODEL_FLAG_ALIASES[@]}" -- "${BASE_FLAGS[@]}")
+  if [ "$EFFORT_STYLE" = kv ]; then
+    want_effort=$(value_of_kv "$EFFORT_FLAG" "${intended[@]}")
+    actual_effort=$(value_of_kv "$EFFORT_FLAG" "${BASE_FLAGS[@]}")
+  else
+    want_effort=$(value_of_flag "$EFFORT_FLAG" "${intended[@]}")
+    actual_effort=$(value_of_flag "$EFFORT_FLAG" "${BASE_FLAGS[@]}")
   fi
-  local i
-  for i in "${!intended[@]}"; do
-    if [ "${BASE_FLAGS[$i]}" != "${intended[$i]}" ]; then
-      note "verify: argv[$i] '${BASE_FLAGS[$i]}' != '${intended[$i]}'"; return 1
-    fi
-  done
+  # Only fail when this tool actually asked for a specific model/effort and the live session
+  # doesn't show it -- a rotation that never specified either has nothing of ours to confirm,
+  # and that's a legitimate outcome, not a signal to block on (unlike pi's branch above, which
+  # fails closed only because it has no OTHER verification signal at all for that kind).
+  if [ -n "$want_model" ] && [ "$actual_model" != "$want_model" ]; then
+    note "verify: actual model '$actual_model' != intended '$want_model'"; return 1
+  fi
+  if [ -n "$want_effort" ] && [ "$actual_effort" != "$want_effort" ]; then
+    note "verify: actual effort '$actual_effort' != intended '$want_effort'"; return 1
+  fi
+
   note "verify OK"; return 0
 }
 
@@ -384,11 +502,11 @@ parse_args() {
   done
 }
 
-# Resolves + validates + captures/overrides argv; common to both entry points below.
-# settle=1 (finish only) waits for the target to reach idle/done first: its ping fires mid-turn
-# (from its own Bash tool call), so acting immediately on receipt could race the tail end of
-# that same turn. handoff doesn't need this — the target is already idle when handoff runs.
-resolve_and_prepare() {
+# Resolves + validates; shared by both entry points below. settle=1 (finish only) waits for the
+# target to reach idle/done first: its ping fires mid-turn (from its own Bash tool call), so
+# acting immediately on receipt could race the tail end of that same turn. handoff doesn't need
+# this — it's fine (by design) to interrupt a busy target to ask it for a handoff.
+resolve_and_validate() {
   local expected_kind="$1" target="$2" settle="${3:-0}" expected_pane="${4:-}"
   resolve "$target"
   # finish only: it already resolved once (bare, unlocked) to pick a lock file, then acquired
@@ -416,20 +534,77 @@ resolve_and_prepare() {
   elif [ "$settle" = 1 ]; then
     wait_settled "$ROTATE_PANE"
   fi
+}
+
+# finish only: resolve_and_validate(), then capture the target's argv and apply any model/effort
+# override. This live interaction (capture_argv/detect_override sends /status, /model into the
+# pane) matters ONLY for finish, whose BASE_FLAGS is what actually gets relaunched -- handoff
+# never uses this result (nothing is persisted between handoff and finish; the caller repeats
+# any override), so handoff calls resolve_and_validate() directly instead of this and skips the
+# live probing entirely. It used to run there too, for no benefit: the result was discarded the
+# moment the function returned, yet a detect_override cleanup timeout (set -e) could still abort
+# the whole handoff step before the handoff prompt was ever sent, over work nothing used.
+resolve_and_prepare() {
+  resolve_and_validate "$@"
   capture_argv "$ROTATE_PANE" "$ROTATE_KIND"
+  # The default already present in the ORIGINAL captured argv, before any override -- used only
+  # to decide whether a live-detected value represents an actual change (see below). Read via
+  # the same alias-aware helpers verify() uses, so a launch that used an alias spelling (e.g.
+  # codex's -m) is still correctly recognized as "already has a model."
+  local default_model default_effort
+  default_model=$(value_of_flag_any "$MODEL_FLAG" "${MODEL_FLAG_ALIASES[@]}" -- "${BASE_FLAGS[@]}")
+  if [ "$EFFORT_STYLE" = kv ]; then default_effort=$(value_of_kv "$EFFORT_FLAG" "${BASE_FLAGS[@]}")
+  else default_effort=$(value_of_flag "$EFFORT_FLAG" "${BASE_FLAGS[@]}"); fi
   # detect_override sends real commands into the target's UI (/status, /settings, /model...) --
   # doing that while the target is mid-turn would race whatever it's currently doing, possibly
-  # landing our keystrokes in the wrong place. finish already confirmed idle above (settle=1);
-  # handoff doesn't wait for idle (by design, so it can interrupt a busy target), so it must
-  # check right here instead of assuming -- skipping detection (not the whole handoff) if busy.
+  # landing our keystrokes in the wrong place. finish already confirmed idle via wait_settled
+  # above, but re-check explicitly rather than assume.
   local target_status="" target_idle=0
   target_status=$(herdr agent get "$ROTATE_PANE" 2>/dev/null | jq -r '.result.agent.agent_status // empty') || target_status=""
   case "$target_status" in idle|done) target_idle=1 ;; esac
   if { [ -z "$OVERRIDE_MODEL" ] || [ -z "$OVERRIDE_EFFORT" ]; } && declare -F detect_override >/dev/null 2>&1; then
     if [ "$target_idle" = 1 ]; then
       detect_override "$ROTATE_PANE"
-      [ -z "$OVERRIDE_MODEL" ]  && [ -n "$DETECTED_MODEL" ]  && OVERRIDE_MODEL="$DETECTED_MODEL"   && note "detected live model: $DETECTED_MODEL"
-      [ -z "$OVERRIDE_EFFORT" ] && [ -n "$DETECTED_EFFORT" ] && OVERRIDE_EFFORT="$DETECTED_EFFORT" && note "detected live effort: $DETECTED_EFFORT"
+      if [ "$ROTATE_KIND" = pi ]; then
+        # pi's captured argv is ALWAYS empty (process.title rewrite -- see capture_argv's own
+        # comment and verify()'s pi branch), so default_model/default_effort can never be
+        # non-empty here -- the differs-from-default gate below would therefore never promote
+        # ANYTHING for pi, leaving OVERRIDE_MODEL/OVERRIDE_EFFORT empty and tripping run_finish's
+        # pi preflight (which requires both) on every single pi rotation. pi has no other
+        # verifiable signal at all for this kind (same reasoning already used in verify()'s pi
+        # branch and that preflight), so any detected value is promoted unconditionally instead.
+        [ -z "$OVERRIDE_MODEL" ] && [ -n "$DETECTED_MODEL" ] && OVERRIDE_MODEL="$DETECTED_MODEL" && note "detected live model: $DETECTED_MODEL"
+        [ -z "$OVERRIDE_EFFORT" ] && [ -n "$DETECTED_EFFORT" ] && OVERRIDE_EFFORT="$DETECTED_EFFORT" && note "detected live effort: $DETECTED_EFFORT"
+      else
+        # A detected value only becomes an override if it DIFFERS from what launch already had --
+        # an explicit --model/--effort on finish always applies regardless (handled above; this
+        # block only ever fires when OVERRIDE_MODEL/OVERRIDE_EFFORT is still empty). Requiring a
+        # non-empty default too means detection alone can never synthesize a flag where none
+        # existed -- there's nothing to compare an implicit default against, so that case is
+        # "can't tell, don't touch," not "a change happened."
+        # Exact match only, for every kind including claude -- no substring/containment
+        # tolerance. An earlier version of this check treated a short alias ("sonnet") as
+        # equivalent to a full identifier containing it ("claude-sonnet-5"), reasoning both are
+        # valid --model spellings for claude (confirmed via `claude --help`) -- but ANY
+        # containment check, in either direction, also silently equates two genuinely DIFFERENT
+        # specific identifiers whenever one happens to be a substring/prefix of the other (e.g.
+        # "claude-sonnet-4-5" vs "claude-sonnet-5", or "claude-opus-4" vs "claude-opus-4-1") --
+        # there is no way to tell "same model, different spelling" apart from "different model,
+        # coincidentally overlapping name" using string containment alone. A false "unchanged"
+        # here silently drops a genuine user model change; a false "changed" only costs an
+        # unnecessary (but still correct) flag rewrite -- given that asymmetry, exact match is
+        # the safer default even though it means a launch using a bare alias will no longer be
+        # recognized as "unchanged" against a live session now showing detect_override's more
+        # specific identifier for that same model.
+        if [ -z "$OVERRIDE_MODEL" ] && [ -n "$DETECTED_MODEL" ] && [ -n "$default_model" ] && [ "$DETECTED_MODEL" != "$default_model" ]; then
+          OVERRIDE_MODEL="$DETECTED_MODEL"
+          note "detected live model changed from launch ('$default_model' -> '$DETECTED_MODEL')"
+        fi
+        if [ -z "$OVERRIDE_EFFORT" ] && [ -n "$DETECTED_EFFORT" ] && [ -n "$default_effort" ] && [ "$DETECTED_EFFORT" != "$default_effort" ]; then
+          OVERRIDE_EFFORT="$DETECTED_EFFORT"
+          note "detected live effort changed from launch ('$default_effort' -> '$DETECTED_EFFORT')"
+        fi
+      fi
     else
       note "target not idle (status: ${target_status:-unknown}); skipping live model/effort detection to avoid racing its current turn"
     fi
@@ -447,7 +622,7 @@ run_handoff() {
   parse_args "$@"
   [ "${#POSITIONAL[@]}" -eq 1 ] || die "usage: herdr-rotate-$expected_kind handoff <name-or-pane> [--name N] [--model M] [--effort E]"
   { [ -n "$KICKOFF" ] || [ "$NO_KICKOFF" = 1 ]; } && die "--kickoff/--no-kickoff only apply to finish (the kickoff prompt is sent there, after relaunch) — pass them to finish instead"
-  resolve_and_prepare "$expected_kind" "${POSITIONAL[0]}"
+  resolve_and_validate "$expected_kind" "${POSITIONAL[0]}"
   send_handoff "$ROTATE_PANE" "$ROTATE_NAME" "$ROTATE_SESSION"
   note "rotation paused for $ROTATE_NAME ($ROTATE_KIND) in $ROTATE_PANE — waiting on its ping"
 }

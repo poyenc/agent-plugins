@@ -53,6 +53,26 @@ assert_eq "override NOT yet in argv (handoff never relaunches)" "0" "$(grep -cx 
 run "$S/herdr-rotate-claude" finish lead "$HANDOFF_PATH" --model sonnet --effort high >/dev/null 2>&1
 assert_eq "override in started argv" "1" "$(grep -cx 'sonnet' "$MOCK_STATE/argv")"
 
+# 3a. a rotation where nothing changed (no explicit override, live-detected model/effort equal to
+# launch) must leave the relaunch argv byte-for-byte identical to the original -- proving Tasks
+# 1-3 work together through the real handoff/finish dispatch, not just in isolated unit tests.
+setup claude lead
+printf -- '--model\nhaiku\n--effort\nmedium\n--verbose\n' > "$MOCK_STATE/argv"
+run "$S/herdr-rotate-claude" handoff lead >/dev/null 2>&1
+run "$S/herdr-rotate-claude" finish lead "$HANDOFF_PATH" >/dev/null 2>&1
+assert_eq "no-change rotation: finish exit 0" "0" "$?"
+assert_eq "no-change rotation: relaunch argv byte-for-byte unchanged" $'--model\nhaiku\n--effort\nmedium\n--verbose' "$(cat "$MOCK_STATE/argv")"
+
+# 3b. an explicit override at finish still replaces in place -- no duplicate flag in the relaunch
+# argv.
+setup claude lead
+printf -- '--model\nhaiku\n--effort\nmedium\n' > "$MOCK_STATE/argv"
+run "$S/herdr-rotate-claude" handoff lead >/dev/null 2>&1
+run "$S/herdr-rotate-claude" finish lead "$HANDOFF_PATH" --model sonnet >/dev/null 2>&1
+assert_eq "explicit override: finish exit 0" "0" "$?"
+assert_eq "explicit override replaces in place, no duplicate --model" "1" "$(grep -cx -- '--model' "$MOCK_STATE/argv")"
+assert_eq "explicit override: new value present" $'--model\nsonnet\n--effort\nmedium' "$(cat "$MOCK_STATE/argv")"
+
 # 4. verify mismatch -> non-zero
 setup claude lead
 printf -- '--model\nhaiku\n' > "$MOCK_STATE/wrong"; export MOCK_VERIFY_ARGV="$MOCK_STATE/wrong"
@@ -239,25 +259,47 @@ run "$S/herdr-rotate-claude" finish 'lead@aaaaaaaa' "$HANDOFF_PATH" >/dev/null 2
 assert_eq "retry with same handoff after revalidation failure succeeds" "0" "$?"
 unset MOCK_SESSION MOCK_SESSION_2
 
-# 5f. claude's initial DEFENSIVE close_modal (a pre-existing modal, not one we opened) must
-# abort the whole rotation if it's confirmed stuck, not just skip live detection and let the
-# handoff prompt land in that same stuck UI.
+# 5f. handoff no longer probes the target's UI at all -- capture_argv/detect_override moved
+# exclusively into finish (their result was previously discarded by handoff; see
+# resolve_and_validate/resolve_and_prepare in rotate-common.sh), so a pre-existing stuck modal on
+# the target must NOT block handoff from sending its prompt any more.
 setup claude lead
 export MOCK_CLAUDE_MODAL_STUCK=1
 run "$S/herdr-rotate-claude" handoff lead >/dev/null 2>&1
-assert_eq "claude stuck defensive modal aborts handoff non-zero" "1" "$?"
-assert_eq "claude stuck modal handoff sends no prompt" "0" "$(grep -c 'Write a handoff' "$MOCK_CALLS")"
+assert_eq "claude stuck modal no longer blocks handoff" "0" "$?"
+assert_eq "claude stuck modal handoff still sends its prompt" "1" "$(grep -c 'Write a handoff' "$MOCK_CALLS")"
 unset MOCK_CLAUDE_MODAL_STUCK
 
-# 5g. pi's detect_override must likewise abort (not silently proceed) if a picker is confirmed
-# stuck open -- exercised at handoff, where a pre-existing stuck picker is discovered by the
-# very first defensive close_modal call.
+# 5f2. finish's own DEFENSIVE close_modal (a pre-existing modal, not one we opened) must still
+# abort the whole rotation if it's confirmed stuck, not just skip live detection and proceed to
+# exit/relaunch against a target whose UI state is unknown -- detect_override now runs
+# exclusively here, not at handoff.
+setup claude lead
+export MOCK_CLAUDE_MODAL_STUCK=1
+run "$S/herdr-rotate-claude" finish lead "$HANDOFF_PATH" >/dev/null 2>&1
+assert_eq "claude stuck defensive modal aborts finish non-zero" "1" "$?"
+assert_eq "claude stuck modal finish never reaches /quit" "0" "$(grep -c '/quit' "$MOCK_CALLS")"
+unset MOCK_CLAUDE_MODAL_STUCK
+
+# 5g. same for pi: handoff no longer probes its UI either, so a pre-existing stuck picker must
+# not block it.
 setup pi worker
 echo 1 > "$MOCK_STATE/pi_modal_open"   # a picker already open before detect_override even runs
 export MOCK_PI_MODAL_STUCK=1 ROTATE_DETECT_POLL_SECS=1
 run "$S/herdr-rotate-pi" handoff worker >/dev/null 2>&1
-assert_eq "pi stuck modal aborts handoff non-zero" "1" "$?"
-assert_eq "pi stuck modal handoff sends no prompt" "0" "$(grep -c 'Write a handoff' "$MOCK_CALLS")"
+assert_eq "pi stuck modal no longer blocks handoff" "0" "$?"
+assert_eq "pi stuck modal handoff still sends its prompt" "1" "$(grep -c 'Write a handoff' "$MOCK_CALLS")"
+unset MOCK_PI_MODAL_STUCK
+
+# 5g2. pi's detect_override must still abort finish (not silently proceed) if a picker is
+# confirmed stuck open -- exercised at finish, where a pre-existing stuck picker is discovered by
+# the very first defensive close_modal call.
+setup pi worker
+echo 1 > "$MOCK_STATE/pi_modal_open"
+export MOCK_PI_MODAL_STUCK=1 ROTATE_DETECT_POLL_SECS=1
+run "$S/herdr-rotate-pi" finish worker "$HANDOFF_PATH" >/dev/null 2>&1
+assert_eq "pi stuck modal aborts finish non-zero" "1" "$?"
+assert_eq "pi stuck modal finish never reaches /quit" "0" "$(grep -c '/quit' "$MOCK_CALLS")"
 unset MOCK_PI_MODAL_STUCK
 
 # 6. dispatcher routes by kind + forwards (kind=pi) and succeeds across both phases

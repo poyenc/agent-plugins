@@ -5,27 +5,81 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$HERE/rotate-common.sh"
 MODEL_FLAG=--model; EFFORT_FLAG=--effort; EFFORT_STYLE=flag
 
-# Sends Esc and waits for confirmation that the modal actually closed (agent_status observed
-# NOT "blocked") before returning 0. An empty/errored status is treated as still-uncertain (kept
-# polling), never as "closed" — a transient read failure must not be mistaken for a clean state.
-# Returns 1 on timeout so callers can refuse to trust or build on whatever comes next.
+# Marker for any of /status, /model, /effort: all three share this exact footer substring while
+# open, and none of them show it once dismissed.
+CLAUDE_MODAL_MARKER='Esc to cancel'
+
+# Extracts the last non-blank line of $1 -- the modal footer is always the exact bottommost
+# rendered line of an actually-open modal (confirmed in every real capture this session), so this
+# is the only part any marker/readiness check below should ever look at; anything higher up in
+# scrollback is explicitly out of scope, including this repo's own code/comments or an earlier
+# turn's leftover confirmation line. Always exits 0, even when $1 is empty or all-blank: this
+# script runs under `set -euo pipefail`, and a bare failing pipeline inside a plain (non-`local`)
+# assignment IS fatal there (confirmed live: an empty `herdr pane read` result aborted the whole
+# rotation) -- an empty/short read is a normal, retryable polling outcome, not an error.
+last_nonblank_line() {
+  printf '%s' "$1" | grep -v '^[[:space:]]*$' | tail -n1 || true
+}
+
+# Sends Esc (re-sent each round) and polls until the marker is no longer visible before
+# returning 0 -- confirmed live that agent_status is NOT a reliable close signal here: /status
+# never transitions it to "blocked" at all (confirmed live: `herdr agent wait --until blocked`
+# timed out with the /status modal plainly still on screen), so the previous status-based
+# close_modal could return immediately, before Escape had actually taken effect, racing whatever
+# command was sent next. Reproduced live: that race sent "/model" while the still-open /status
+# screen swallowed it, and the STALE escape (meant for /status) landed on the freshly-opened
+# /model picker instead, closing it before the poll loop below ever got to read it -- the same
+# failure previously blamed on the wrong footer string. Matches pi's close_modal semantics for
+# the identical reason (see herdr-rotate-pi). Returns 1 on timeout so callers can refuse to trust
+# or build on whatever comes next.
+#
+# The marker check is scoped to the LAST NON-BLANK line, not the whole read: "Esc to cancel" is
+# real, ordinary English that could otherwise appear higher up in scrollback (e.g. this very
+# repo's own code/comments, or an earlier turn discussing this tool) -- confirmed live that an
+# unrelated occurrence anywhere in a 20-line read makes close_modal report "stuck" forever, and
+# that even a fixed few-line tail isn't narrow enough: an unrelated mention on the line just above
+# genuine trailing output still falls inside a multi-line window. The marker is always the exact
+# bottommost rendered line of an actually-open modal (confirmed in every real capture this
+# session; trailing blank padding below it, if any, is skipped rather than treated as "no last
+# line"), so that single line is the only part that should ever be checked.
 close_modal() {
-  local pane="$1" st deadline=$(( SECONDS + 5 ))
+  local pane="$1" out last deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
   herdr agent send-keys "$pane" escape >/dev/null 2>&1 || true
   while [ "$SECONDS" -lt "$deadline" ]; do
-    st=$(herdr agent get "$pane" 2>/dev/null | jq -r '.result.agent.agent_status // empty') || st=""
-    [ -n "$st" ] && [ "$st" != "blocked" ] && return 0
+    # A read failure is UNKNOWN, not "closed" -- treating it as closed would let a still-open
+    # modal be mistaken for confirmed closure on a transient herdr read error. An EMPTY/all-blank
+    # last line is the same kind of unknown, not a confirmed absence of the marker: reproduced
+    # live that a transient blank redraw (the modal is still genuinely open, but this one read
+    # happened to catch it mid-render) made close_modal return "closed" after a single such read
+    # -- a genuinely closed pane always has SOME content (a shell prompt, at minimum), so only a
+    # NON-empty last line without the marker counts as confirmed closure.
+    if out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null); then
+      last=$(last_nonblank_line "$out")
+      [ -n "$last" ] && ! printf '%s' "$last" | grep -qF "$CLAUDE_MODAL_MARKER" && return 0
+    fi
+    herdr agent send-keys "$pane" escape >/dev/null 2>&1 || true
     command sleep 1
   done
-  note "modal on $pane may not have closed (status: ${st:-unknown})"
+  note "modal on $pane may not have closed (marker still present)"
   return 1
 }
 
-# Reads the LIVE model/effort straight from Claude Code's own /status and /effort command
-# output (never header/footer/statusline, which reflow) and cancels both with Esc, leaving
-# nothing changed. Sets DETECTED_MODEL/DETECTED_EFFORT (empty if undetectable). A defensive
-# close_modal runs BEFORE each command too, so "the modal marker is present" always means the
-# modal we just opened, never a stale one left over from something else.
+# Reads the LIVE model AND effort straight from Claude Code's own /model command output (never
+# header/footer/statusline, which reflow) and cancels with Esc, leaving nothing changed. Sets
+# DETECTED_MODEL/DETECTED_EFFORT (empty if undetectable). A defensive close_modal runs BEFORE the
+# command too, so "the modal marker is present" always means the modal we just opened, never a
+# stale one left over from something else.
+#
+# Model is read from /model's own picker, not /status: /status only ever shows the short alias
+# (e.g. "sonnet"), which can't be reliably compared against a launch argv that used the full
+# model identifier instead -- both are valid --model values (confirmed via `claude --help`: "an
+# alias for the latest model ... or a model's full name"). /model's picker marks the CURRENTLY
+# SELECTED row with BOTH a cursor (❯) and a checkmark (✔) on the same line, and (for a regular
+# row) that row's own identifier column (e.g. "Claude-Sonnet-5[1m]") names the SPECIFIC model
+# selected -- not just its family -- so a live switch between two dated versions within the same
+# family (e.g. Sonnet 4.5 -> Sonnet 5) is still visible as a real change, not masked by both
+# sharing the same generic "Custom Sonnet model" description. Reading model from here also avoids
+# a separate /status probe entirely (one live command instead of two).
 detect_override() {
   local pane="$1" out="" deadline seen
 
@@ -34,60 +88,80 @@ detect_override() {
 
   # Defensive pre-close: nothing has been opened by us yet here, so this modal (if any) is
   # pre-existing, not one of ours. A CONFIRMED failure to close it still means the pane's UI
-  # state is unknown right before /status (or, if this is called from handoff, before the
+  # state is unknown right before /model (or, if this is called from handoff, before the
   # handoff prompt itself) gets sent -- skipping only detection would let that prompt land in
   # the same stuck UI. Abort the whole rotation instead (bare call in resolve_and_prepare, so
   # this propagates via set -e), matching pi's close_modal semantics.
   close_modal "$pane" || { note "pane $pane has a stuck modal; aborting rotation"; return 1; }
-  herdr agent prompt "$pane" "/status" >/dev/null 2>&1 || return 0
+
+  # Reads effort off /model, not /effort -- confirmed live (real product, v2.1.237) that
+  # /model's picker states the current effort as a plain "<Level> effort ... to adjust" line
+  # (e.g. "Medium effort <-/-> to adjust", "High effort (default) <-/-> to adjust") right below
+  # the model list, with no column-position math needed. /effort's own slider (tick marker vs a
+  # label row that can carry extra columns like max/ultracode) is a real, working modal too, but
+  # a strictly worse source for this same value -- /model gives it as literal text instead.
+  herdr agent prompt "$pane" "/model" >/dev/null 2>&1 || return 0
   seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
-    if printf '%s' "$out" | grep -q 'Esc to cancel'; then seen=1; break; fi
+    # Scoped to the last non-blank line, same as close_modal's own marker check -- an unrelated
+    # or STALE footer earlier in scrollback (e.g. a prior turn's leftover confirmation line)
+    # would otherwise make this fire before the fresh modal has actually rendered. Requires BOTH
+    # footer phrases on that one line -- the real /model footer is always a single line carrying
+    # both ("Enter to set as default ... Esc to cancel"), so requiring both together is a
+    # stronger, still-always-true signal than either alone.
+    local footer; footer=$(last_nonblank_line "$out")
+    if printf '%s' "$footer" | grep -q 'Enter to set as default' && printf '%s' "$footer" | grep -q 'Esc to cancel'; then
+      seen=1; break
+    fi
     command sleep 1
   done
   if [ "$seen" = 1 ]; then
-    DETECTED_MODEL=$(printf '%s' "$out" | grep -oE 'Model:[[:space:]]+[^[:space:]]+' | head -n1 | awk '{print $2}') || true
+    # The currently-selected row is the one marked with BOTH ❯ (cursor) and ✔ (checkmark) --
+    # tail -n1 picks the newest (bottommost) such line, same reasoning as the effort extraction
+    # below: a stale mention of both characters together elsewhere in scrollback would otherwise
+    # win under head -n1.
+    local row name
+    row=$(printf '%s' "$out" | grep -E '❯.*✔' | tail -n1) || true
+    # Prefer the row's OWN model identifier (the token immediately before the checkmark, e.g.
+    # "Claude-Sonnet-5[1m]") over its generic "Custom X model" description: the description only
+    # names the family ("Sonnet"), which can't distinguish between two dated versions of the same
+    # family (e.g. Sonnet 4.5 vs Sonnet 5) that would both show that same generic word -- a live
+    # switch between them would otherwise look like no change at all. The identifier's own
+    # "[1m]"-style context-window suffix is a display annotation, not part of the model name, and
+    # is stripped.
+    name=$(printf '%s' "$row" | grep -oE '[A-Za-z0-9._-]+(\[[A-Za-z0-9._-]+\])? ✔' | tail -n1) || true
+    name="${name% ✔}"
+    name="${name%%\[*}"
+    # The Default row has no such identifier column of its own -- its description instead reads
+    # "Use the default model (currently Opus 5 (1M context))", so fall back to the family name
+    # named there (still generic, since that's all the UI itself ever shows for this row).
+    [ -z "$name" ] && { name=$(printf '%s' "$row" | grep -oE 'currently [A-Za-z]+' | awk '{print $2}') || true; }
+    DETECTED_MODEL=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
+
+    # Require "adjust" on the SAME line as the level word so this can only match the modal's
+    # own current-effort line, never the persistent "<Model> with <level> effort" banner further
+    # up the same scrollback (that banner has no "adjust" on it). tail -n1, not head -n1: an
+    # earlier line can still coincidentally contain both words (e.g. leftover scrollback from a
+    # prior /model invocation this same session, or ordinary text) -- the modal's OWN line is
+    # always the newest (bottommost) match, since the terminal grows downward.
+    local level; level=$(printf '%s' "$out" | grep -oE '[A-Za-z]+ effort.*adjust' | tail -n1 | awk '{print tolower($1)}') || true
+    case "$level" in low|medium|high|xhigh|max) DETECTED_EFFORT="$level" ;; esac  # skip ultracode: not a --effort value
   fi
   # From here on WE opened the modal -- a failure to confirm it closed leaves the target's UI
   # state unknown right before the destructive /quit step that follows in run_finish, so this
   # must abort the whole rotation (matching pi's close_modal semantics), not silently continue.
   close_modal "$pane"
-
-  herdr agent prompt "$pane" "/effort" >/dev/null 2>&1 || return 0
-  out=""; seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
-    if printf '%s' "$out" | grep -q 'Enter to confirm'; then seen=1; break; fi
-    command sleep 1
-  done
-  if [ "$seen" = 1 ]; then
-    local slider; slider=$(printf '%s' "$out" | awk '
-      /▲/ { tick=$0; gsub(/─/, "-", tick); gsub(/▲/, "^", tick) }
-      /low[ \t]+medium[ \t]+high[ \t]+xhigh/ { labels=$0 }
-      END {
-        if (tick == "" || labels == "") { exit }
-        pos = index(tick, "^")
-        n = split(labels, words, /[ \t]+/)
-        best = ""; bestd = 999999; startcol = 1
-        for (i = 1; i <= n; i++) {
-          w = words[i]; if (w == "") continue
-          idx = index(substr(labels, startcol), w)
-          abscol = startcol + idx - 1
-          d = abscol - pos; if (d < 0) d = -d
-          if (d < bestd) { bestd = d; best = w }
-          startcol = abscol + length(w)
-        }
-        print best
-      }') || true
-    case "$slider" in low|medium|high|xhigh|max) DETECTED_EFFORT="$slider" ;; esac  # skip ultracode: not a --effort value
-  fi
-  close_modal "$pane"
 }
 
-sub="${1:-}"; shift || true
-case "$sub" in
-  handoff) run_handoff claude "$@" ;;
-  finish)  run_finish  claude "$@" ;;
-  *) die "usage: herdr-rotate-claude <handoff|finish> <name-or-pane> [...]" ;;
-esac
+# Guarded so this can be sourced directly (e.g. by a unit test exercising detect_override in
+# isolation) without the dispatch below running unwanted -- matching herdr-rotate-pi's own
+# convention for the same reason.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  sub="${1:-}"; shift || true
+  case "$sub" in
+    handoff) run_handoff claude "$@" ;;
+    finish)  run_finish  claude "$@" ;;
+    *) die "usage: herdr-rotate-claude <handoff|finish> <name-or-pane> [...]" ;;
+  esac
+fi

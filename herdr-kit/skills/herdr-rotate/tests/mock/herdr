@@ -46,15 +46,12 @@ case "$1 $2" in
     echo '{"result":{"type":"agent_prompted"}}' ;;
   "agent get")
     [ "$(gone)" = 1 ] && { echo '{"error":{"code":"agent_not_found"}}'; exit 1; }
-    # Call #1 is always "idle" (satisfies the target_idle gate that runs BEFORE detect_override
-    # is ever invoked) -- MOCK_CLAUDE_MODAL_STUCK only takes effect from call #2 onward, i.e.
-    # inside close_modal's own confirmation poll, simulating a modal that never confirms closed.
-    gn=$(( $(cat "$MOCK_STATE/get_calls" 2>/dev/null || echo 0) + 1 )); echo "$gn" > "$MOCK_STATE/get_calls"
-    if [ "$MOCK_KIND" = claude ] && [ "${MOCK_CLAUDE_MODAL_STUCK:-0}" = 1 ] && [ "$gn" -gt 1 ]; then
-      echo '{"result":{"agent":{"agent_status":"blocked"}}}'
-    else
-      echo '{"result":{"agent":{"agent_status":"idle"}}}'
-    fi ;;
+    # claude's close_modal no longer reads agent_status at all (confirmed live: /status never
+    # transitions it to "blocked", so that signal was never reliable for claude's modals --
+    # close_modal is marker-based now, see MOCK_CLAUDE_MODAL_STUCK under "pane read" below). This
+    # always-"idle" response only still needs to satisfy the target_idle gate that runs BEFORE
+    # detect_override is ever invoked.
+    echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
   "pane read")
     if [ "$(gone)" = 1 ]; then
       printf 'user@host:~/x$ \n'
@@ -79,6 +76,11 @@ case "$1 $2" in
       # as an effort value, so DETECTED_EFFORT stays empty (a real "nothing to detect" case).
       [ -n "$effort" ] && printf 'Thinking level          %s\n' "$effort"
       [ -n "$name" ] && printf '%s [%s] \xe2\x9c\x93\n' "$name" "$provider"
+    elif [ "$MOCK_KIND" = claude ] && [ "${MOCK_CLAUDE_MODAL_STUCK:-0}" = 1 ]; then
+      # Simulates a claude modal that never actually closes: the marker close_modal polls for
+      # (the "Esc to cancel" footer shared by /status, /model, /effort) stays visible no matter
+      # how many Escapes are sent.
+      printf 'Esc to cancel\n'
     else
       printf 'agent ui drawing\n'
     fi ;;
