@@ -88,7 +88,10 @@ sends the kickoff prompt.
 - `--name N` — name for an unnamed agent on relaunch (default: derived `<kind>-<pane>`).
 - `--model M` / `--effort E` — override launch model/effort (only if changed mid-session;
   pi model must be provider-qualified, e.g. `amd-gateway/gpt-5.6-terra`). Omitted -> replayed.
-- `--kickoff "<msg>"` — custom first prompt (default: "continue from the handoff").
+- `--kickoff "<msg>"` — custom first prompt (default: "Continue the work described in the
+  handoff at \<path\>, then pick up the task list where it leaves off." — deliberately doesn't
+  say "read it fully" or mention referenced files; that phrasing has been observed to push the
+  fresh agent into proactively reading everything the handoff references before doing any work).
 - `--no-kickoff` — relaunch without sending a resume prompt.
 
 The dispatcher detects the kind and forwards to `herdr-rotate-<kind>`; you never

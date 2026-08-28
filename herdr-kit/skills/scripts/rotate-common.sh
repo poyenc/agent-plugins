@@ -480,7 +480,12 @@ kickoff() {
   if [ "${NO_KICKOFF:-0}" = 1 ]; then note "kickoff skipped (--no-kickoff)"; return 0; fi
   local text
   if [ -n "$msg" ]; then text="$msg"
-  else text="Continue the work described in the handoff at ${path} -- read it fully first, then pick up the task list."; fi
+  # Deliberately doesn't say "read it fully" or mention files the handoff references --
+  # confirmed live that phrasing nudges the fresh agent into proactively reading everything the
+  # handoff mentions, landing it near the compaction threshold before it does any actual work.
+  # The fresh agent will open the handoff on its own to find the task list; it doesn't need to
+  # be told to exhaustively consume it or its references first.
+  else text="Continue the work described in the handoff at ${path}, then pick up the task list where it leaves off."; fi
   herdr agent prompt "$pane" "$text" >/dev/null 2>&1
 }
 
