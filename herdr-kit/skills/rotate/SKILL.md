@@ -89,9 +89,12 @@ sends the kickoff prompt.
 - `--model M` / `--effort E` — override launch model/effort (only if changed mid-session;
   pi model must be provider-qualified, e.g. `amd-gateway/gpt-5.6-terra`). Omitted -> replayed.
 - `--kickoff "<msg>"` — custom first prompt (default: "Continue the work described in the
-  handoff at \<path\>, then pick up the task list where it leaves off." — deliberately doesn't
-  say "read it fully" or mention referenced files; that phrasing has been observed to push the
-  fresh agent into proactively reading everything the handoff references before doing any work).
+  handoff at \<path\>, without proactively reading the files it references -- open each one only
+  when a task step actually needs it. Then pick up the task list where it leaves off." —
+  deliberately doesn't say "read it fully" or otherwise imply exhaustively consuming the handoff
+  and its references up front; that framing has been observed to push the fresh agent into
+  proactively reading everything the handoff references before doing any work. Wording aligned
+  with the same fix made to the standalone `handoff` skill's own kickoff-prompt template).
 - `--no-kickoff` — relaunch without sending a resume prompt.
 
 The dispatcher detects the kind and forwards to `herdr-rotate-<kind>`; you never
