@@ -1,5 +1,5 @@
 ---
-name: herdr-rotate
+name: rotate
 description: >
   Rotate a running herdr coding agent (claude, pi, or codex): checkpoint its
   context to a handoff document, then exit and relaunch it in the SAME pane as a
@@ -16,7 +16,7 @@ disable-model-invocation: true
 allowed-tools: Bash(*/scripts/herdr-rotate *), Bash(*/scripts/herdr-rotate-* *), Bash(herdr *)
 ---
 
-# herdr-rotate
+# rotate
 
 Rotate a running herdr agent in place: handoff -> exit -> relaunch (fresh
 session, same pane/tab/workspace/name, same launch command).
@@ -29,7 +29,7 @@ calls with a pause in between.
 
 ### Step 1 — request the handoff
 
-`<base>` is the directory containing this SKILL.md file (e.g. `.../herdr-kit/skills/herdr-rotate`).
+`<base>` is the directory containing this SKILL.md file (e.g. `.../herdr-kit/skills/rotate`).
 
     <base>/../scripts/herdr-rotate handoff <name-or-pane> [--name N] [--model M] [--effort E]
 
