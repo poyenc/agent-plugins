@@ -39,7 +39,7 @@ it can confirm the pane empty).
 
 3. **Stop here.** Say nothing further and take no more actions this turn -- you are
    about to be replaced. The detached daemon is watching for your pane to go idle
-   (`ROTATE_SETTLE_POLL_SECS`, default 60s from when it starts watching, which is
+   (`ROTATE_SETTLE_POLL_SECS`, default 150s from when it starts watching, which is
    essentially immediately after step 2 returns) -- any further activity on your part
    eats directly into that window. If you keep working past it, the daemon times out
    and dies with you left untouched -- a safe, retryable failure, not data loss, but the

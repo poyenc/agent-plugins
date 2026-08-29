@@ -278,13 +278,13 @@ revalidate_session() {
 # tail end of that same turn. Dies on timeout rather than proceeding — the next step is
 # destructive (/quit) and should never run against a target that isn't confirmed settled.
 wait_settled() {
-  local pane="$1" st="" deadline=$(( SECONDS + ${ROTATE_SETTLE_POLL_SECS:-60} ))
+  local pane="$1" st="" deadline=$(( SECONDS + ${ROTATE_SETTLE_POLL_SECS:-150} ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     st=$(herdr agent get "$pane" 2>/dev/null | jq -r '.result.agent.agent_status // empty') || st=""
     case "$st" in idle|done) return 0 ;; esac
     command sleep 1
   done
-  die "target on $pane did not settle within ${ROTATE_SETTLE_POLL_SECS:-60}s (status: ${st:-unknown}) — not proceeding with a destructive step against a possibly still-active session"
+  die "target on $pane did not settle within ${ROTATE_SETTLE_POLL_SECS:-150}s (status: ${st:-unknown}) — not proceeding with a destructive step against a possibly still-active session"
 }
 
 # %s slots: default handoff path, orchestrator pane id, target's own name (twice: instruction + literal tag).
