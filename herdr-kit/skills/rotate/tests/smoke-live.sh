@@ -37,7 +37,7 @@ herdr agent prompt "$target" "This is a rotation smoke test, not a real task. Sk
 wait_for_turn "$target" 15 180000
 
 # Phase 1: send the handoff, addressed to the stand-in orchestrator's pane (not this script's).
-# --no-kickoff is finish-only now; handoff rejects it.
+# --kickoff off is finish-only now; handoff rejects it.
 HERDR_PANE_ID="$opane" "$ROT" handoff "$target"
 
 # Phase 2: wait for the ping to land in the orchestrator's own conversation/output, then
@@ -65,7 +65,7 @@ done
 [ -n "$path" ] || { echo "FAIL: no ping with a path arrived at the orchestrator within timeout"; exit 1; }
 [ -s "$path" ] || { echo "FAIL: pinged path does not exist / is empty: $path"; exit 1; }
 
-"$ROT" finish "$tag" "$path" --no-kickoff
+"$ROT" finish "$tag" "$path" --kickoff off
 
 after=$(herdr pane process-info --pane "$tpane" | jq -c --arg k "$kind" '.result.process_info.foreground_processes[]|select(.name==$k).argv')
 herdr agent prompt "$target" "What codeword did I ask you to remember? Reply NO_MARKER if none." >/dev/null 2>&1 \

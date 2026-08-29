@@ -477,7 +477,11 @@ verify() {
 # was never actually told to resume.
 kickoff() {
   local pane="$1" path="$2" msg="${3:-}"
-  if [ "${NO_KICKOFF:-0}" = 1 ]; then note "kickoff skipped (--no-kickoff)"; return 0; fi
+  # "off" is a literal sentinel value of the SAME flag, not a separate --no-kickoff flag --
+  # see parse_args()'s own comment for why this collapses three states into one flag cleanly
+  # while keeping "omitted entirely" meaning "send the default message" (today's behavior,
+  # unchanged).
+  if [ "$msg" = off ]; then note "kickoff skipped (--kickoff off)"; return 0; fi
   local text
   if [ -n "$msg" ]; then text="$msg"
   # Deliberately doesn't say "read it fully" or otherwise imply exhaustively consuming the
@@ -490,17 +494,20 @@ kickoff() {
   herdr agent prompt "$pane" "$text" >/dev/null 2>&1
 }
 
-# Parses --name/--model/--effort/--kickoff/--no-kickoff; leftover positionals -> POSITIONAL[].
+# Parses --name/--model/--effort/--kickoff; leftover positionals -> POSITIONAL[]. KICKOFF's
+# three logical states (default / custom message / suppressed) live in this ONE variable:
+# empty (flag omitted entirely) -> default kickoff message; literal "off" -> suppressed;
+# anything else -> that exact custom message. No separate NO_KICKOFF flag/variable -- kickoff()
+# itself special-cases the "off" literal instead.
 parse_args() {
-  OVERRIDE_NAME="" OVERRIDE_MODEL="" OVERRIDE_EFFORT="" KICKOFF="" NO_KICKOFF=0
+  OVERRIDE_NAME="" OVERRIDE_MODEL="" OVERRIDE_EFFORT="" KICKOFF=""
   POSITIONAL=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --name)    [ $# -ge 2 ] || die "--name needs a value";    OVERRIDE_NAME="$2";   shift 2 ;;
       --model)   [ $# -ge 2 ] || die "--model needs a value";   OVERRIDE_MODEL="$2";  shift 2 ;;
       --effort)  [ $# -ge 2 ] || die "--effort needs a value";  OVERRIDE_EFFORT="$2"; shift 2 ;;
-      --kickoff) [ $# -ge 2 ] || die "--kickoff needs a value"; KICKOFF="$2";         shift 2 ;;
-      --no-kickoff) NO_KICKOFF=1; shift ;;
+      --kickoff) [ $# -ge 2 ] || die "--kickoff needs a value (a message, or 'off' to suppress it)"; KICKOFF="$2"; shift 2 ;;
       --) shift ;;
       -*) die "unknown option: $1" ;;
       *) POSITIONAL+=("$1"); shift ;;
@@ -627,7 +634,7 @@ run_handoff() {
   guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
   parse_args "$@"
   [ "${#POSITIONAL[@]}" -eq 1 ] || die "usage: herdr-rotate-$expected_kind handoff <name-or-pane> [--name N] [--model M] [--effort E]"
-  { [ -n "$KICKOFF" ] || [ "$NO_KICKOFF" = 1 ]; } && die "--kickoff/--no-kickoff only apply to finish (the kickoff prompt is sent there, after relaunch) — pass them to finish instead"
+  [ -n "$KICKOFF" ] && die "--kickoff only applies to finish (the kickoff prompt is sent there, after relaunch) — pass it to finish instead"
   resolve_and_validate "$expected_kind" "${POSITIONAL[0]}"
   send_handoff "$ROTATE_PANE" "$ROTATE_NAME" "$ROTATE_SESSION"
   note "rotation paused for $ROTATE_NAME ($ROTATE_KIND) in $ROTATE_PANE — waiting on its ping"
@@ -640,7 +647,7 @@ run_finish() {
   local expected_kind="$1"; shift
   guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
   parse_args "$@"
-  [ "${#POSITIONAL[@]}" -eq 2 ] || die "usage: herdr-rotate-$expected_kind finish <name-or-pane> <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG] [--no-kickoff]"
+  [ "${#POSITIONAL[@]}" -eq 2 ] || die "usage: herdr-rotate-$expected_kind finish <name-or-pane> <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]"
   local target="${POSITIONAL[0]}" handoff_path="${POSITIONAL[1]}"
   [ -f "$handoff_path" ] && [ -s "$handoff_path" ] || die "handoff file missing/empty: $handoff_path"
 

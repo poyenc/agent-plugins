@@ -70,7 +70,7 @@ path straight out of it.
 
 Then run, passing the **tag from the ping** (not just the bare name) as the target:
 
-    <base>/../scripts/herdr-rotate finish <name-or-pane>[@<session-prefix>] <handoff-path> [--name N] [--model M] [--effort E] [--kickoff "<message>"] [--no-kickoff]
+    <base>/../scripts/herdr-rotate finish <name-or-pane>[@<session-prefix>] <handoff-path> [--name N] [--model M] [--effort E] [--kickoff "<message>"|off]
 
 The `@<session-prefix>` is optional — omit it to skip the staleness check — but
 including it is how you get the protection described above.
@@ -78,9 +78,9 @@ including it is how you get the protection described above.
 **Pass the exact same `--name`/`--model`/`--effort` you gave to `handoff`** —
 nothing is persisted between the two calls, so this step re-derives the launch
 argv (and re-detects the live model/effort the same way) from
-scratch and needs the same options to produce the same result. `--kickoff`/
-`--no-kickoff` are `finish`-only (the kickoff prompt is sent here, after
-relaunch) — `handoff` rejects them. This step exits the target, relaunches it
+scratch and needs the same options to produce the same result. `--kickoff` is
+`finish`-only (the kickoff prompt is sent here, after relaunch) — `handoff`
+rejects it. This step exits the target, relaunches it
 in the same pane with the resulting argv, verifies it element-by-element, and
 sends the kickoff prompt.
 
@@ -95,7 +95,8 @@ sends the kickoff prompt.
   and its references up front; that framing has been observed to push the fresh agent into
   proactively reading everything the handoff references before doing any work. Wording aligned
   with the same fix made to the standalone `handoff` skill's own kickoff-prompt template).
-- `--no-kickoff` — relaunch without sending a resume prompt.
+- `--kickoff off` — relaunch without sending a resume prompt (replaces the old, separate
+  `--no-kickoff` flag — `off` is a value of `--kickoff`, not its own flag).
 
 The dispatcher detects the kind and forwards to `herdr-rotate-<kind>`; you never
 need to name it yourself.

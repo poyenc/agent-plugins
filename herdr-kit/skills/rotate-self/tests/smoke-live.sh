@@ -36,7 +36,7 @@ herdr agent prompt "$target" "This is a rotation smoke test, not a real task. Re
 wait_for_turn "$target" 15 180000
 
 handoff_path="/tmp/smoke-self-handoff-$$.md"
-herdr agent prompt "$target" "Write a one-line handoff to $handoff_path (just 'smoke test handoff' is fine), then run $SELF $handoff_path --no-kickoff, then say nothing else." >/dev/null 2>&1 \
+herdr agent prompt "$target" "Write a one-line handoff to $handoff_path (just 'smoke test handoff' is fine), then run $SELF $handoff_path --kickoff off, then say nothing else." >/dev/null 2>&1 \
   || { echo "FAIL: self-rotation instruction send failed"; exit 1; }
 
 deadline=$(( SECONDS + 180 ))

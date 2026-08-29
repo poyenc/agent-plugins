@@ -30,7 +30,7 @@ it can confirm the pane empty).
 
 2. Run:
 
-       <base>/../scripts/herdr-rotate-self <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG] [--no-kickoff]
+       <base>/../scripts/herdr-rotate-self <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]
 
    where `<base>` is the directory containing this SKILL.md file (e.g.
    `.../herdr-kit/skills/rotate-self`). This validates the handoff file, resolves
@@ -48,7 +48,7 @@ it can confirm the pane empty).
 - `--name N` -- name for an unnamed agent on relaunch (default: derived `<kind>-<pane>`).
 - `--model M` / `--effort E` -- override launch model/effort (same semantics as
   herdr-rotate's own `finish`; pi model must be provider-qualified).
-- `--kickoff "<msg>"` / `--no-kickoff` -- same as herdr-rotate's `finish`.
+- `--kickoff "<msg>"` / `--kickoff off` -- same as herdr-rotate's `finish`.
 
 ## How it works
 

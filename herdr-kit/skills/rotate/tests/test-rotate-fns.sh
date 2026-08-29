@@ -325,16 +325,20 @@ detect_override(){ DETECTED_MODEL="amd-gateway/unexpected"; DETECTED_EFFORT="max
 assert_eq "pi verify fails closed when intended has no model/effort" "1" "$(rc verify lead wG:p4 pi -- --verbose)"
 unset -f detect_override 2>/dev/null || true
 
-# kickoff
+# kickoff: default (no msg given at all -> the built-in default message)
 KOLOG=$(mktemp)
 herdr(){ case "$1 $2" in "agent prompt") shift; printf '%s\n' "$*" >> "$KOLOG";; esac; echo '{"result":{}}'; }
-: > "$KOLOG"; NO_KICKOFF=0; kickoff wG:p4 /tmp/h/x.md
-assert_eq "kickoff cites path" "1" "$(grep -c '/tmp/h/x.md' "$KOLOG")"
+: > "$KOLOG"; kickoff wG:p4 /tmp/h/x.md
+assert_eq "kickoff (no msg) cites path" "1" "$(grep -c '/tmp/h/x.md' "$KOLOG")"
+
+# kickoff: custom message
 : > "$KOLOG"; kickoff wG:p4 /tmp/h/x.md "custom go"
-assert_eq "kickoff override" "1" "$(grep -c 'custom go' "$KOLOG")"
-: > "$KOLOG"; NO_KICKOFF=1; kickoff wG:p4 /tmp/h/x.md
-assert_eq "no-kickoff sends nothing" "0" "$(wc -l < "$KOLOG" | tr -d ' ')"
-NO_KICKOFF=0
+assert_eq "kickoff (custom msg) sends it" "1" "$(grep -c 'custom go' "$KOLOG")"
+
+# kickoff: "off" sentinel suppresses it entirely -- one flag, three states, no separate
+# NO_KICKOFF variable needed any more.
+: > "$KOLOG"; kickoff wG:p4 /tmp/h/x.md "off"
+assert_eq "kickoff off sends nothing" "0" "$(wc -l < "$KOLOG" | tr -d ' ')"
 
 # kickoff must propagate a failed send (any nonzero, not swallowed to 0) -- a caller reporting
 # "rotation complete" over a kickoff that never arrived would be misleading the operator.
@@ -580,7 +584,8 @@ MODEL_FLAG=--model EFFORT_FLAG=--effort EFFORT_STYLE=flag
 ( HERDR_ENV=1; herdr(){ :;}; run_handoff claude --bogus x >/dev/null 2>&1 ); assert_eq "handoff unknown option dies" "1" "$?"
 ( HERDR_ENV=1; herdr(){ :;}; run_handoff claude --model >/dev/null 2>&1 ); assert_eq "handoff missing value dies" "1" "$?"
 ( HERDR_ENV=1; herdr(){ :;}; run_handoff claude a b >/dev/null 2>&1 ); assert_eq "handoff extra positional dies" "1" "$?"
-( HERDR_ENV=1; herdr(){ :;}; run_handoff claude a --no-kickoff >/dev/null 2>&1 ); assert_eq "handoff rejects --no-kickoff" "1" "$?"
+( HERDR_ENV=1; herdr(){ :;}; run_handoff claude a --kickoff off >/dev/null 2>&1 ); assert_eq "handoff rejects --kickoff (any value, including the off sentinel)" "1" "$?"
+( HERDR_ENV=1; herdr(){ :;}; run_handoff claude a --kickoff "some message" >/dev/null 2>&1 ); assert_eq "handoff rejects --kickoff with a real message too" "1" "$?"
 ( HERDR_ENV=1; herdr(){ :;}; run_finish claude a >/dev/null 2>&1 ); assert_eq "finish missing handoff-path positional dies" "1" "$?"
 ( HERDR_ENV=1; herdr(){ :;}; run_finish claude a /no/such/file.md >/dev/null 2>&1 ); assert_eq "finish missing handoff file dies" "1" "$?"
 
