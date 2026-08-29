@@ -56,6 +56,12 @@ assert_eq "send propagates a failed underlying prompt (dies loudly, not swallowe
 assert_eq "send failure surfaces the underlying prompt's own diagnostic, not just a generic message" "1" "$(printf '%s' "$out" | grep -c 'agent_prompt_stalled')"
 
 setup
+export MOCK_FAIL_SEND=2
+out=$(bash "$S/herdr-message" send wK:p1 "hello there" 2>&1); rc=$?
+assert_eq "send failure with no underlying diagnostic still dies" "1" "$rc"
+assert_eq "send failure with no underlying diagnostic has no dangling ': ' suffix" "0" "$(printf '%s' "$out" | grep -c ': *$')"
+
+setup
 export MOCK_SENDER_NAME=skill-writer
 out=$(bash "$S/herdr-message" reply wF:p1 abc123 "done, all green" 2>&1); rc=$?
 assert_eq "reply exits 0" "0" "$rc"
@@ -75,6 +81,12 @@ export MOCK_FAIL_SEND=1
 out=$(bash "$S/herdr-message" reply wF:p1 abc123 "done" 2>&1); rc=$?
 assert_eq "reply propagates a failed underlying prompt (dies loudly, not swallowed to 0)" "1" "$rc"
 assert_eq "reply failure surfaces the underlying prompt's own diagnostic, not just a generic message" "1" "$(printf '%s' "$out" | grep -c 'agent_prompt_stalled')"
+
+setup
+export MOCK_FAIL_SEND=2
+out=$(bash "$S/herdr-message" reply wF:p1 abc123 "done" 2>&1); rc=$?
+assert_eq "reply failure with no underlying diagnostic still dies" "1" "$rc"
+assert_eq "reply failure with no underlying diagnostic has no dangling ': ' suffix" "0" "$(printf '%s' "$out" | grep -c ': *$')"
 
 ( HERDR_ENV=0; bash "$S/herdr-message" send wK:p1 "x" >/dev/null 2>&1 ); assert_eq "send no-op outside herdr" "0" "$?"
 ( HERDR_ENV=1; bash "$S/herdr-message" send wK:p1 >/dev/null 2>&1 ); assert_eq "send missing text dies" "1" "$?"

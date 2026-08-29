@@ -99,7 +99,7 @@ cmd_send() {
   id=$(generate_message_id)
   from=$(sender_from_line)
   envelope=$(build_send_envelope "$id" "$from" "$text" "$callback" "$callback_msg")
-  err=$(herdr agent prompt "$target" "$envelope" 2>&1 >/dev/null) || die "failed to send message to $target: $err"
+  err=$(herdr agent prompt "$target" "$envelope" 2>&1 >/dev/null) || die "failed to send message to $target${err:+: $err}"
   print_result "$id" "$target"
 }
 
@@ -111,7 +111,7 @@ cmd_reply() {
   local from envelope err
   from=$(sender_from_line)
   envelope=$(build_reply_envelope "$id" "$from" "$text")
-  err=$(herdr agent prompt "$target" "$envelope" 2>&1 >/dev/null) || die "failed to send reply to $target: $err"
+  err=$(herdr agent prompt "$target" "$envelope" 2>&1 >/dev/null) || die "failed to send reply to $target${err:+: $err}"
   print_result "$id" "$target"
 }
 

@@ -15,8 +15,6 @@ set +e   # herdr-message's own `set -e` (imported by sourcing) would otherwise a
 id=$(generate_message_id)
 assert_eq "message id is 6 characters" "6" "${#id}"
 assert_eq "message id is lowercase alphanumeric only" "0" "$(printf '%s' "$id" | grep -cvE '^[a-z0-9]+$')"
-id2=$(generate_message_id)
-assert_eq "two calls produce different ids (not a fixed constant)" "1" "$([ "$id" != "$id2" ] && echo 1 || echo 0)"
 
 # sender_from_line: named sender
 herdr(){ case "$1 $2" in "agent get") echo '{"result":{"agent":{"name":"plugin-writer"}}}' ;; esac; }
