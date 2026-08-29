@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+note() { printf 'herdr-message: %s\n' "$*" >&2; }
+die()  { printf 'herdr-message: ERROR: %s\n' "$*" >&2; exit 1; }
+guard() { [ "${HERDR_ENV:-}" = 1 ]; }
+
+# 6-character lowercase alphanumeric id -- collision risk is irrelevant here: it's an informal,
+# human/agent-legible correlation tag for an async conversation, not a security token or a
+# globally unique identifier. No external uuid/hash dependency needed.
+generate_message_id() {
+  local chars="abcdefghijklmnopqrstuvwxyz0123456789" id="" i
+  for i in $(seq 1 6); do id+="${chars:$((RANDOM % ${#chars})):1}"; done
+  printf '%s' "$id"
+}
+
+# Resolves the CALLING agent's own identity for an envelope's "from" line. The pane id is
+# always $HERDR_PANE_ID (guard() already confirmed we're in herdr, and callers additionally
+# require it non-empty before calling this) -- it is the ONLY guaranteed-resolvable reply
+# target, since an unnamed agent has no resolvable name yet, only a pane id (same reasoning
+# already established in rotate's own send_handoff: "the pane id always does, whether or not
+# the agent is named"). The name is included ONLY when one currently exists, purely for
+# readability -- never required, and an `agent get` failure is treated the same as "no name
+# set" rather than aborting the send over a cosmetic lookup.
+sender_from_line() {
+  local name
+  name=$(herdr agent get "$HERDR_PANE_ID" 2>/dev/null | jq -r '.result.agent.name // empty') || name=""
+  if [ -n "$name" ]; then printf '%s@%s' "$name" "$HERDR_PANE_ID"
+  else printf '%s' "$HERDR_PANE_ID"; fi
+}
+
+# $1=id $2=from $3=text $4=callback(0/1) $5=callback_msg (only used when $4=1)
+build_send_envelope() {
+  local id="$1" from="$2" text="$3" callback="$4" callback_msg="$5"
+  local envelope="[msg-$id from $from]
+$text"
+  if [ "$callback" = 1 ]; then
+    local instr
+    if [ -n "$callback_msg" ]; then instr="$callback_msg"
+    # Points at this script's OWN `reply` subcommand rather than telling the recipient to
+    # hand-construct a raw `herdr agent prompt` envelope -- avoids a mistyped [reply:...] tag
+    # breaking the correlation the sender is relying on.
+    else instr="When convenient, reply with: $HERE/herdr-message reply $HERDR_PANE_ID $id \"<your update>\""
+    fi
+    envelope="$envelope
+
+--- callback requested ---
+$instr"
+  fi
+  printf '%s' "$envelope"
+}
+
+# $1=id $2=from $3=text
+build_reply_envelope() {
+  local id="$1" from="$2" text="$3"
+  printf '[reply:%s from %s]\n%s' "$id" "$from" "$text"
+}
+
+cmd_send() {
+  guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
+  [ -n "${HERDR_PANE_ID:-}" ] || die "HERDR_PANE_ID is not set -- cannot determine sender identity"
+  local -a positional=()
+  local callback=0 callback_msg=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --callback)
+        callback=1
+        # Optional-value flag: consume the next token as custom text ONLY if it doesn't look
+        # like another flag -- same peek-ahead technique already used in this codebase for
+        # claude's own -r/--resume [value] (see rotate-common.sh's strip_context_flags).
+        if [ $# -ge 2 ] && [[ "$2" != -* ]]; then callback_msg="$2"; shift 2
+        else shift; fi
+        ;;
+      --) shift; while [ $# -gt 0 ]; do positional+=("$1"); shift; done ;;
+      -*) die "unknown option: $1" ;;
+      *) positional+=("$1"); shift ;;
+    esac
+  done
+  [ "${#positional[@]}" -eq 2 ] || die "usage: herdr-message send <target> <text> [--callback [MSG]]"
+  local target="${positional[0]}" text="${positional[1]}"
+  local id from envelope
+  id=$(generate_message_id)
+  from=$(sender_from_line)
+  envelope=$(build_send_envelope "$id" "$from" "$text" "$callback" "$callback_msg")
+  herdr agent prompt "$target" "$envelope" >/dev/null 2>&1 || die "failed to send message to $target"
+  printf '{"message_id":"%s","sent_to":"%s"}\n' "$id" "$target"
+}
+
+cmd_reply() {
+  guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
+  [ -n "${HERDR_PANE_ID:-}" ] || die "HERDR_PANE_ID is not set -- cannot determine sender identity"
+  [ $# -eq 3 ] || die "usage: herdr-message reply <target> <message-id> <text>"
+  local target="$1" id="$2" text="$3"
+  local from envelope
+  from=$(sender_from_line)
+  envelope=$(build_reply_envelope "$id" "$from" "$text")
+  herdr agent prompt "$target" "$envelope" >/dev/null 2>&1 || die "failed to send reply to $target"
+  printf '{"message_id":"%s","sent_to":"%s"}\n' "$id" "$target"
+}
+
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  sub="${1:-}"; shift || true
+  case "$sub" in
+    send)  cmd_send "$@" ;;
+    reply) cmd_reply "$@" ;;
+    *) die "usage: herdr-message <send|reply> ..." ;;
+  esac
+fi

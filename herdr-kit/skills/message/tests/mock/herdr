@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Mock herdr binary for herdr-message's end-to-end flow tests. Unlike the pure-function tests
+# (which source herdr-message and override a bash function named `herdr`), these tests EXECUTE
+# the real script as a subprocess -- it calls the literal `herdr` command by name, so a
+# PATH-shadowing binary is needed instead. Config via env: MOCK_CALLS (log file, required),
+# MOCK_SENDER_NAME (agent get's reported name, empty = unnamed), MOCK_FAIL_SEND (1 = simulate
+# agent prompt failing).
+set -uo pipefail
+printf '%s\n' "${*//$'\n'/\\n}" >> "$MOCK_CALLS"   # collapse embedded newlines: one call = one log line
+case "$1 $2" in
+  "agent get") printf '{"result":{"agent":{"name":"%s"}}}\n' "${MOCK_SENDER_NAME:-}" ;;
+  "agent prompt")
+    [ "${MOCK_FAIL_SEND:-0}" = 1 ] && { echo '{"error":{"code":"agent_prompt_stalled"}}' >&2; exit 1; }
+    echo '{"result":{}}' ;;
+  *) echo '{"result":{}}' ;;
+esac
