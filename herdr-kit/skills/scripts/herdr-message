@@ -95,11 +95,11 @@ cmd_send() {
       *) die "unknown option: $1" ;;
     esac
   done
-  local id from envelope
+  local id from envelope err
   id=$(generate_message_id)
   from=$(sender_from_line)
   envelope=$(build_send_envelope "$id" "$from" "$text" "$callback" "$callback_msg")
-  herdr agent prompt "$target" "$envelope" >/dev/null 2>&1 || die "failed to send message to $target"
+  err=$(herdr agent prompt "$target" "$envelope" 2>&1 >/dev/null) || die "failed to send message to $target: $err"
   print_result "$id" "$target"
 }
 
@@ -108,10 +108,10 @@ cmd_reply() {
   [ -n "${HERDR_PANE_ID:-}" ] || die "HERDR_PANE_ID is not set -- cannot determine sender identity"
   [ $# -eq 3 ] || die "usage: herdr-message reply <target> <message-id> <text>"
   local target="$1" id="$2" text="$3"
-  local from envelope
+  local from envelope err
   from=$(sender_from_line)
   envelope=$(build_reply_envelope "$id" "$from" "$text")
-  herdr agent prompt "$target" "$envelope" >/dev/null 2>&1 || die "failed to send reply to $target"
+  err=$(herdr agent prompt "$target" "$envelope" 2>&1 >/dev/null) || die "failed to send reply to $target: $err"
   print_result "$id" "$target"
 }
 
