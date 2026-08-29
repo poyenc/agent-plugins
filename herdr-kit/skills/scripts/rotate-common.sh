@@ -507,7 +507,14 @@ parse_args() {
       --name)    [ $# -ge 2 ] || die "--name needs a value";    OVERRIDE_NAME="$2";   shift 2 ;;
       --model)   [ $# -ge 2 ] || die "--model needs a value";   OVERRIDE_MODEL="$2";  shift 2 ;;
       --effort)  [ $# -ge 2 ] || die "--effort needs a value";  OVERRIDE_EFFORT="$2"; shift 2 ;;
-      --kickoff) [ $# -ge 2 ] || die "--kickoff needs a value (a message, or 'off' to suppress it)"; KICKOFF="$2"; shift 2 ;;
+      --kickoff)
+        [ $# -ge 2 ] || die "--kickoff needs a value (a message, or 'off' to suppress it)"
+        # An explicitly empty value ("--kickoff ''") is otherwise indistinguishable from
+        # omitting the flag entirely (both would leave KICKOFF=""), which would silently pass
+        # handoff's own rejection check instead of being rejected like every other --kickoff
+        # use -- reject it here, at parse time, uniformly for both handoff and finish.
+        [ -n "$2" ] || die "--kickoff needs a non-empty value (a message, or 'off' to suppress it)"
+        KICKOFF="$2"; shift 2 ;;
       --) shift ;;
       -*) die "unknown option: $1" ;;
       *) POSITIONAL+=("$1"); shift ;;

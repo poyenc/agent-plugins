@@ -33,6 +33,22 @@ bash "$S/herdr-message" send wK:p1 "please review" --callback "let me know when 
 assert_eq "custom --callback text is used instead of the default" "1" "$(grep -c 'let me know when done' "$MOCK_CALLS")"
 assert_eq "custom --callback: default instruction is NOT also sent" "0" "$(grep -c 'herdr-message reply' "$MOCK_CALLS")"
 
+# <text> starting with "-" must not be misread as an unrecognized flag -- target/text are fixed
+# positionals taken by position, never flag-sniffed. An LLM writing free-form message text (a
+# bullet point, an em-dash opener, "-1", ...) has no reason to know to escape a leading "-".
+setup
+out=$(bash "$S/herdr-message" send wK:p1 "- first bullet point of update" 2>&1); rc=$?
+assert_eq "send <text> starting with '-' succeeds" "0" "$rc"
+assert_eq "dash-leading text is delivered literally" "1" "$(grep -c -- '- first bullet point of update' "$MOCK_CALLS")"
+
+# --callback=<msg>: the attached "=" form takes everything after it literally, so a custom
+# callback message that itself starts with "-" (which the bare peek-ahead form can never
+# represent, since it always looks like "no value given") can still be sent unambiguously.
+setup
+bash "$S/herdr-message" send wK:p1 "please review" --callback="- dash-leading custom callback" >/dev/null 2>&1
+assert_eq "--callback=<msg> delivers a dash-leading custom callback message" "1" "$(grep -c -- '- dash-leading custom callback' "$MOCK_CALLS")"
+assert_eq "--callback=<msg>: default instruction is NOT also sent" "0" "$(grep -c 'herdr-message reply' "$MOCK_CALLS")"
+
 setup
 export MOCK_FAIL_SEND=1
 out=$(bash "$S/herdr-message" send wK:p1 "hello there" 2>&1); rc=$?

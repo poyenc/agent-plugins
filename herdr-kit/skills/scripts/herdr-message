@@ -60,25 +60,34 @@ build_reply_envelope() {
 cmd_send() {
   guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
   [ -n "${HERDR_PANE_ID:-}" ] || die "HERDR_PANE_ID is not set -- cannot determine sender identity"
-  local -a positional=()
+  # <target> and <text> are fixed-shape REQUIRED positionals, always first, in this order --
+  # taken by position, with NO flag-sniffing. The caller here is typically an LLM writing
+  # free-form message text, not a careful shell user who knows to prepend "--"; sniffing every
+  # token for a leading "-" would misread an ordinary message that happens to start with one
+  # (a bullet point, "-1", an em-dash opener, ...) as an unrecognized option.
+  [ $# -ge 2 ] || die "usage: herdr-message send <target> <text> [--callback [MSG]]"
+  local target="$1" text="$2"; shift 2
   local callback=0 callback_msg=""
   while [ $# -gt 0 ]; do
     case "$1" in
+      # Unambiguous attached form: everything after "=" on this SAME token is the literal
+      # custom message, no matter what it starts with -- same convention this repo already
+      # uses elsewhere (strip_context_flags's --session-id=zzz, rotate-common.sh's
+      # --config=key=value).
+      --callback=*) callback=1; callback_msg="${1#--callback=}"; shift ;;
       --callback)
         callback=1
         # Optional-value flag: consume the next token as custom text ONLY if it doesn't look
         # like another flag -- same peek-ahead technique already used in this codebase for
-        # claude's own -r/--resume [value] (see rotate-common.sh's strip_context_flags).
+        # claude's own -r/--resume [value] (see rotate-common.sh's strip_context_flags). A
+        # custom message that itself starts with "-" can never be represented this way -- use
+        # --callback=<msg> instead, which takes it literally.
         if [ $# -ge 2 ] && [[ "$2" != -* ]]; then callback_msg="$2"; shift 2
         else shift; fi
         ;;
-      --) shift; while [ $# -gt 0 ]; do positional+=("$1"); shift; done ;;
-      -*) die "unknown option: $1" ;;
-      *) positional+=("$1"); shift ;;
+      *) die "unknown option: $1" ;;
     esac
   done
-  [ "${#positional[@]}" -eq 2 ] || die "usage: herdr-message send <target> <text> [--callback [MSG]]"
-  local target="${positional[0]}" text="${positional[1]}"
   local id from envelope
   id=$(generate_message_id)
   from=$(sender_from_line)

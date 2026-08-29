@@ -27,6 +27,8 @@ prompt is delivered, whether or not anyone ever answers.
   `herdr-message reply` back at you.
 - `--callback "<msg>"` -- request a reply with your own custom instruction instead of the
   default.
+- `--callback=<msg>` -- same as above, but takes everything after `=` literally, with zero
+  ambiguity -- use this form if your custom instruction itself starts with `-`.
 - Omit `--callback` entirely for a pure fire-and-forget message -- no reply implied or
   expected.
 
@@ -60,3 +62,7 @@ rather than reporting success.
 - **Message ids are not unique across the whole session, only informally distinct.** A 6-char
   random id is meant to be human/agent-legible for casual correlation, not a collision-proof
   identifier -- don't rely on it for anything security- or correctness-critical.
+- **A `<text>` starting with `-` needs no special handling** -- `<target>`/`<text>` are fixed
+  positionals, never flag-sniffed. A custom `--callback` message starting with `-`, however,
+  DOES need the `--callback=<msg>` form specifically (see above) -- the bare `--callback [MSG]`
+  peek-ahead form can never tell such a message apart from "no value given."

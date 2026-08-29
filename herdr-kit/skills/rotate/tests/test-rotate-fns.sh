@@ -589,4 +589,54 @@ MODEL_FLAG=--model EFFORT_FLAG=--effort EFFORT_STYLE=flag
 ( HERDR_ENV=1; herdr(){ :;}; run_finish claude a >/dev/null 2>&1 ); assert_eq "finish missing handoff-path positional dies" "1" "$?"
 ( HERDR_ENV=1; herdr(){ :;}; run_finish claude a /no/such/file.md >/dev/null 2>&1 ); assert_eq "finish missing handoff file dies" "1" "$?"
 
+# An explicitly empty --kickoff value is otherwise indistinguishable from omitting the flag
+# entirely (both would leave KICKOFF=""), so it must be rejected at parse time -- BEFORE any
+# herdr interaction, not merely happen to die downstream for an unrelated reason. A no-op herdr
+# mock (as used for the early-exit tests above) can't tell these apart: it dies either way (from
+# resolve()'s own "agent list failed" once past parse_args), so a real, successful-looking mock
+# is needed to prove the old code did NOT reject this and instead ran the rotation to completion.
+herdr(){
+  case "$1 $2" in
+    "agent list") printf '%s' "$MOCK_AGENTS" ;;
+    "agent prompt") echo '{"result":{}}' ;;
+    *) echo "{}" ;;
+  esac
+}
+( HERDR_ENV=1 run_handoff claude lead --kickoff "" >/dev/null 2>&1 )
+assert_eq "handoff rejects an explicitly empty --kickoff value (old code would silently send the handoff prompt instead)" "1" "$?"
+
+# Same gap for finish, which needs the full exit/relaunch/verify/kickoff path mocked to
+# completion to prove the discriminating point: the old code let "--kickoff ''" fall through
+# untouched, and kickoff() itself treats an empty message exactly like "not given at all" (sends
+# the DEFAULT continue-the-handoff message) -- so the old code doesn't just fail to reject it, it
+# actively reports the whole rotation "complete".
+HF_KICKOFF=$(mktemp); printf 'handoff body\n' > "$HF_KICKOFF"
+LOCKROOT_KICKOFF=$(mktemp -d)
+MOCK_PROC_FINISH_KICKOFF=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"claude",argv:["claude","--verbose"]}]}}}')
+CNT_WG4_KICKOFF=$(mktemp); echo 0 > "$CNT_WG4_KICKOFF"
+herdr(){
+  case "$1 $2" in
+    "agent list") printf '%s' "$MOCK_AGENTS" ;;
+    "pane process-info") printf '%s' "$MOCK_PROC_FINISH_KICKOFF" ;;
+    "agent prompt") echo '{"result":{}}' ;;
+    "agent get")
+      if [ "$3" = lead ]; then echo '{"result":{"agent":{"agent_status":"idle"}}}'
+      else
+        # First call (wait_settled) reports idle so the rotation can proceed; every call after
+        # that (exit_agent's gone() polling) reports not_found, combined with "pane read" below,
+        # so exit_agent sees the old agent as already gone and relaunch can proceed.
+        local n; n=$(cat "$CNT_WG4_KICKOFF"); echo $((n+1)) > "$CNT_WG4_KICKOFF"
+        if [ "$n" -eq 0 ]; then echo '{"result":{"agent":{"agent_status":"idle"}}}'
+        else echo '{"error":{"code":"agent_not_found"}}' >&2; return 1; fi
+      fi ;;
+    "pane read") printf 'user@host:~$ \n' ;;
+    "agent start") echo '{"result":{"agent":{}}}' ;;
+    *) echo "{}" ;;
+  esac
+}
+( HERDR_ENV=1 ROTATE_LOCK_ROOT="$LOCKROOT_KICKOFF" ROTATE_SETTLE_POLL_SECS=2 ROTATE_EXIT_POLL_SECS=2 ROTATE_VERIFY_POLL_SECS=2 \
+  run_finish claude lead "$HF_KICKOFF" --kickoff "" >/dev/null 2>&1 )
+assert_eq "finish rejects an explicitly empty --kickoff value (old code would silently complete using the default kickoff message instead)" "1" "$?"
+rm -f "$HF_KICKOFF" "$CNT_WG4_KICKOFF"; rm -rf "$LOCKROOT_KICKOFF"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
