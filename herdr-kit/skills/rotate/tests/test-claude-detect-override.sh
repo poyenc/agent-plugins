@@ -50,7 +50,7 @@ ROTATE_DETECT_POLL_SECS=1
 
 detect_override wG:p4
 assert_eq "detect_override succeeds"                       "0"      "$?"
-assert_eq "model recovered from /model's own marked row"   "claude-sonnet-5" "$DETECTED_MODEL"
+assert_eq "model recovered from /model's own marked row, [1m] suffix kept"   "claude-sonnet-5[1m]" "$DETECTED_MODEL"
 assert_eq "effort recovered from /model"                   "medium" "$DETECTED_EFFORT"
 
 # A stale "<Model> with <level> effort" banner line sitting earlier in the same scrollback (no
@@ -105,7 +105,7 @@ herdr(){
   esac
 }
 detect_override wG:p4
-assert_eq "stale marked row (different model) does not beat the modal's own current selection" "claude-sonnet-5" "$DETECTED_MODEL"
+assert_eq "stale marked row (different model) does not beat the modal's own current selection" "claude-sonnet-5[1m]" "$DETECTED_MODEL"
 
 # A model that landed on the list some other way (e.g. via --model at launch, rather than being
 # one of the four standard numbered entries) gets its own row whose PRIMARY label is a
@@ -128,7 +128,7 @@ herdr(){
   esac
 }
 detect_override wG:p4
-assert_eq "a launch-time --model entry's real identifier is found in its description, not truncated to a trailing digit" "claude-sonnet-5" "$DETECTED_MODEL"
+assert_eq "a launch-time --model entry's real identifier is found in its description, not truncated to a trailing digit, and its [1m] suffix is preserved (a different, both-valid --model value)" "claude-sonnet-5[1m]" "$DETECTED_MODEL"
 
 # Two dated versions within the SAME family (e.g. Sonnet 4.5 vs Sonnet 5) both show the identical
 # generic "Custom Sonnet model" description -- extraction must read the row's own specific
@@ -146,7 +146,7 @@ herdr(){
   esac
 }
 detect_override wG:p4
-assert_eq "same-family, different dated version is extracted distinctly (not just 'sonnet')" "claude-sonnet-4-5" "$DETECTED_MODEL"
+assert_eq "same-family, different dated version is extracted distinctly (not just 'sonnet')" "claude-sonnet-4-5[1m]" "$DETECTED_MODEL"
 
 # close_modal itself: an unrelated mention of the marker phrase earlier in scrollback (not the
 # bottommost lines) must not be mistaken for a still-open modal.

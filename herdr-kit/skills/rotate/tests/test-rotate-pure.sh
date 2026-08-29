@@ -127,6 +127,101 @@ replace_or_append_kv arr model_reasoning_effort max
 assert_eq "kv: last occurrence wins across -c/--config/--config= all mixed" \
   "-c model_reasoning_effort=low --config model_reasoning_effort=mid -c model_reasoning_effort=max" "${arr[*]}"
 
+# dedupe_idempotent_flags: a locally-aliased CLI name (e.g. `alias claude='claude
+# --dangerously-skip-permissions --verbose'`) re-expands ahead of the same flags on every
+# relaunch, so a captured argv that has already been through N rotations carries N copies of
+# whatever the alias adds -- this must collapse back to one copy, regardless of N. Deliberately
+# an ALLOWLIST (IDEMPOTENT_FLAGS), not shape-inference -- see the function's own comment for the
+# two corruption modes a prior shape-based version had and was rejected in review for.
+#
+# Operates on the global BASE_FLAGS directly (no nameref parameter, single-use helper -- see the
+# function's own comment for why a nameref here was a real footgun), so every case below sets
+# BASE_FLAGS itself rather than an arbitrarily-named local array.
+IDEMPOTENT_FLAGS=(--dangerously-skip-permissions --verbose)
+
+BASE_FLAGS=(--dangerously-skip-permissions --verbose --model opus --effort high)
+dedupe_idempotent_flags
+assert_eq "single copy (no alias yet) is left alone" \
+  "--dangerously-skip-permissions --verbose --model opus --effort high" "${BASE_FLAGS[*]}"
+
+BASE_FLAGS=(--dangerously-skip-permissions --verbose --dangerously-skip-permissions --verbose --model opus --effort high)
+dedupe_idempotent_flags
+assert_eq "two copies collapse to one, trailing flags untouched" \
+  "--dangerously-skip-permissions --verbose --model opus --effort high" "${BASE_FLAGS[*]}"
+
+BASE_FLAGS=(--dangerously-skip-permissions --verbose --dangerously-skip-permissions --verbose --dangerously-skip-permissions --verbose --dangerously-skip-permissions --verbose --dangerously-skip-permissions --verbose --model opus --effort high)
+dedupe_idempotent_flags
+assert_eq "five copies (matches the live-observed count) collapse to one" \
+  "--dangerously-skip-permissions --verbose --model opus --effort high" "${BASE_FLAGS[*]}"
+
+BASE_FLAGS=(--verbose --model opus)
+dedupe_idempotent_flags
+assert_eq "a single boolean flag with no repetition at all is left alone" "--verbose --model opus" "${BASE_FLAGS[*]}"
+
+# A flag NOT on the allowlist must never be touched, no matter how it repeats -- this is the
+# whole point of an allowlist over shape-inference: a same-flag-different-value repeat (e.g.
+# --add-dir given twice on purpose)...
+BASE_FLAGS=(--add-dir /a --add-dir /b --model opus)
+dedupe_idempotent_flags
+assert_eq "unlisted flag, different values: left untouched" \
+  "--add-dir /a --add-dir /b --model opus" "${BASE_FLAGS[*]}"
+# ...and even an EXACT repeat of an unlisted flag (e.g. a counted -v -v -v verbosity flag, where
+# the repetition itself is meaningful) must survive untouched -- a prior shape-based version of
+# this function collapsed exactly this case, silently changing behavior.
+BASE_FLAGS=(-v -v -v --model opus)
+dedupe_idempotent_flags
+assert_eq "unlisted flag, exact repeat with meaningful count: left untouched" \
+  "-v -v -v --model opus" "${BASE_FLAGS[*]}"
+
+# The repeating unit can appear anywhere, any number of times, and non-adjacently -- only exact
+# occurrences of a LISTED token are ever collapsed, regardless of position.
+BASE_FLAGS=(--verbose --verbose --verbose --model opus)
+dedupe_idempotent_flags
+assert_eq "three repeats of a listed flag collapse to one" "--verbose --model opus" "${BASE_FLAGS[*]}"
+BASE_FLAGS=(--verbose --model opus --verbose --effort high)
+dedupe_idempotent_flags
+assert_eq "non-adjacent repeats of a listed flag still collapse" \
+  "--verbose --model opus --effort high" "${BASE_FLAGS[*]}"
+
+# A real alias unit with an INTERNAL repeat (e.g. the alias itself lists the same flag twice) is
+# exactly the case a shape-based version corrupted (A A B A A B -> A B A A B, a coincidental
+# shorter period winning over the real cycle) -- the allowlist approach has no such failure mode
+# since every listed-flag occurrence is deduped independently of any inferred "unit".
+IDEMPOTENT_FLAGS=(--dangerously-skip-permissions)
+BASE_FLAGS=(--dangerously-skip-permissions --dangerously-skip-permissions --verbose --dangerously-skip-permissions --dangerously-skip-permissions --verbose --model opus)
+dedupe_idempotent_flags
+assert_eq "an alias unit with its own internal repeat collapses correctly, unlisted --verbose untouched" \
+  "--dangerously-skip-permissions --verbose --verbose --model opus" "${BASE_FLAGS[*]}"
+IDEMPOTENT_FLAGS=(--dangerously-skip-permissions --verbose)
+
+# Nothing past a literal "--" is a flag (see strip_context_flags) -- it must never be touched,
+# even if it looks like a listed flag repeating.
+BASE_FLAGS=(--dangerously-skip-permissions --verbose --dangerously-skip-permissions --verbose -- --dangerously-skip-permissions --verbose)
+dedupe_idempotent_flags
+assert_eq "positional data past -- is never touched, even if it looks like a listed repeat" \
+  "--dangerously-skip-permissions --verbose -- --dangerously-skip-permissions --verbose" "${BASE_FLAGS[*]}"
+
+BASE_FLAGS=()
+dedupe_idempotent_flags
+assert_eq "empty array is left alone" "" "${BASE_FLAGS[*]}"
+
+# IDEMPOTENT_FLAGS itself is optional (unset/empty for a kind with no known-idempotent flags,
+# same convention as MODEL_FLAG_ALIASES) -- must be a true no-op, not an error, under set -u.
+# Tested both genuinely UNSET (the real state for a per-kind script that never sets it, e.g.
+# pi/codex today) and explicitly empty, since those are two different variable states in bash.
+unset IDEMPOTENT_FLAGS
+BASE_FLAGS=(--dangerously-skip-permissions --dangerously-skip-permissions --model opus)
+dedupe_idempotent_flags
+assert_eq "genuinely-unset IDEMPOTENT_FLAGS is a no-op, not an error" \
+  "--dangerously-skip-permissions --dangerously-skip-permissions --model opus" "${BASE_FLAGS[*]}"
+
+IDEMPOTENT_FLAGS=()
+BASE_FLAGS=(--dangerously-skip-permissions --dangerously-skip-permissions --model opus)
+dedupe_idempotent_flags
+assert_eq "explicitly-empty IDEMPOTENT_FLAGS is a no-op, not an error" \
+  "--dangerously-skip-permissions --dangerously-skip-permissions --model opus" "${BASE_FLAGS[*]}"
+IDEMPOTENT_FLAGS=(--dangerously-skip-permissions --verbose)
+
 # value_of_kv (the read path) must recognize the same --config/--config= forms as the write path
 # above, or a codex agent launched with either can't have its effort changes detected at all.
 assert_eq "value_of_kv recognizes codex's --config key=value form" "low" \

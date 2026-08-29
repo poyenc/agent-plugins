@@ -7,6 +7,14 @@ MODEL_FLAG=--model; EFFORT_FLAG=model_reasoning_effort; EFFORT_STYLE=kv
 MODEL_FLAG_ALIASES=(-m)   # codex also accepts -m; this tool only ever WRITES --model, never -m
                           # (see replace_or_append_flag: -m here is matched to find an existing
                           # occurrence to replace, never emitted)
+# Boolean/valueless codex flags confirmed idempotent (repeating changes nothing) via `codex
+# --help` -- see dedupe_idempotent_flags for why this must be an exact-token allowlist, not
+# inferred from argv shape. --dangerously-bypass-approvals-and-sandbox matches a real operator
+# alias on this box (`alias codex='codex --dangerously-bypass-approvals-and-sandbox'` in
+# ~/.bashrc, confirmed live), same alias-compounding failure mode as claude's
+# --dangerously-skip-permissions/--verbose. --dangerously-bypass-hook-trust is codex's other
+# boolean dangerous/trust-bypass flag, included for the same exposure if it's ever used too.
+IDEMPOTENT_FLAGS=(--dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust)
 
 # Reads the LIVE model/effort straight from Codex's own /status command output (never
 # header/footer/statusline). Unlike claude/pi, /status here is a plain, non-modal printout --

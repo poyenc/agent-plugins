@@ -4,6 +4,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=SCRIPTDIR/rotate-common.sh
 source "$HERE/rotate-common.sh"
 MODEL_FLAG=--model; EFFORT_FLAG=--effort; EFFORT_STYLE=flag
+# Boolean/valueless claude flags confirmed idempotent (repeating changes nothing) via `claude
+# --help` -- the exact-match allowlist dedupe_idempotent_flags uses to collapse a repeat WITHOUT
+# ever inferring one from argv shape (see that function's own comment for why). Scoped to
+# permission/verbosity flags specifically, not every boolean claude flag (e.g. --bare is left
+# off -- it's a startup-mode switch, not permission-related, so it's out of scope here).
+# --dangerously-skip-permissions/--verbose are exactly the pair a real operator alias on this box
+# adds (`alias claude='claude --dangerously-skip-permissions --verbose'` in ~/.bashrc, confirmed
+# live) -- not a guess. --allow-dangerously-skip-permissions is a DIFFERENT flag (enables
+# bypassing as an option rather than forcing it) included for the same alias-compounding
+# exposure if it's ever used instead/alongside.
+IDEMPOTENT_FLAGS=(--dangerously-skip-permissions --allow-dangerously-skip-permissions --verbose)
 
 # Marker for any of /status, /model, /effort: all three share this exact footer substring while
 # open, and none of them show it once dismissed.
@@ -137,10 +148,15 @@ detect_override() {
     # extraction would grab only the trailing "5" from that display name in this case (the exact
     # failure mode reported live: a relaunch replaying "--model 5"). Searching the whole row for
     # this fixed "Claude-...[...]" pattern, rather than assuming its position, finds it either
-    # way. Its own "[1m]"-style context-window suffix is a display annotation, not part of the
-    # model name, and is stripped.
+    # way. The bracketed suffix (e.g. "[1m]") is kept, not stripped: it's part of the real --model
+    # value, not a display annotation -- confirmed live that "claude-opus-5" and
+    # "claude-opus-5[1m]" are two DIFFERENT, both-valid --model identifiers (the latter selects
+    # the 1M-context variant), so dropping it here silently downgrades every rotated session
+    # that had opted into the larger context window back to the default window, with no error
+    # of any kind. Passing a concrete identifier also bypasses ANTHROPIC_DEFAULT_OPUS_MODEL-style
+    # alias resolution entirely, so there is no other route back to the intended window once this
+    # suffix is lost.
     name=$(printf '%s' "$row" | grep -oE 'Claude-[A-Za-z0-9._-]+(\[[A-Za-z0-9._-]+\])?' | head -n1) || true
-    name="${name%%\[*}"
     # The Default row has no such identifier column of its own -- its description instead reads
     # "Use the default model (currently Opus 5 (1M context))", so fall back to the family name
     # named there (still generic, since that's all the UI itself ever shows for this row).

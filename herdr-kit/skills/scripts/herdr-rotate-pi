@@ -4,6 +4,15 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=SCRIPTDIR/rotate-common.sh
 source "$HERE/rotate-common.sh"
 MODEL_FLAG=--model; EFFORT_FLAG=--thinking; EFFORT_STYLE=flag
+# Boolean/valueless pi flags confirmed idempotent (repeating changes nothing) via `pi --help` --
+# see dedupe_idempotent_flags for why this must be an exact-token allowlist, not inferred from
+# argv shape. --approve (trust project-local files) and --verbose are pi's own permission/
+# verbosity equivalents of claude's --dangerously-skip-permissions/--verbose, guarding against
+# the same alias-compounding failure mode if a `pi` shell alias is ever added on this box (none
+# exists today, unlike claude/codex -- this list is simply inert, not a guess about one existing).
+# pi's own --no-approve (the opposite toggle) is deliberately left off: it's not a permission-
+# bypass flag, so it's out of scope here.
+IDEMPOTENT_FLAGS=(--approve --verbose)
 
 validate_override() {   # pi model must be provider-qualified
   local m="$1"

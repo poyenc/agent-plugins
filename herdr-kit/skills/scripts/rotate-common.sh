@@ -170,6 +170,51 @@ capture_argv() {
     .result.process_info.foreground_processes[] | select(.name==$k) | .argv[] | . + "\u0000"')
   [ "${#raw[@]}" -gt 0 ] || die "no $kind process on pane $pane"
   mapfile -d '' -t BASE_FLAGS < <(strip_context_flags "$kind" "${raw[@]:1}")
+  dedupe_idempotent_flags
+}
+
+# Drops repeat occurrences of a flag on this kind's own IDEMPOTENT_FLAGS list (optional, set by
+# per-kind script -- empty/unset means no-op, same convention as MODEL_FLAG_ALIASES above). Exists
+# because an operator's own shell alias for this kind's binary (e.g. `alias claude='claude
+# --dangerously-skip-permissions --verbose'` in ~/.bashrc, confirmed live, likewise for codex)
+# re-expands ahead of the same flags on every relaunch: capture_argv reads back the ALREADY
+# alias-expanded argv and replays it, so each rotation compounds one more copy, unbounded.
+#
+# Deliberately an ALLOWLIST of exact tokens, not shape-based cycle detection -- an earlier
+# shape-inferring version was rejected in review (see test-rotate-pure.sh's counterexamples: it
+# collapsed a legitimately-repeated flag+value, and separately corrupted a repeat unit that had
+# its own internal repetition). Restricting matches to flags EXPLICITLY declared boolean/
+# idempotent for this kind (confirmed via the CLI's own --help) means only an already-declared-safe
+# token can ever be dropped -- an unlisted flag is never touched, no matter how it repeats.
+#
+# Operates directly on the global BASE_FLAGS, not a nameref parameter: this is single-use
+# (capture_argv is its only caller), and a nameref here is a real footgun -- a same-named local
+# declared inside the function (e.g. a generic loop variable) would shadow the caller's array
+# instead of the intended target. Naming BASE_FLAGS directly removes that whole class of bug.
+dedupe_idempotent_flags() {
+  local -A seen=()
+  local -a out=()
+  local n=${#BASE_FLAGS[@]} idx tok is_idempotent flag
+  for (( idx=0; idx<n; idx++ )); do
+    tok="${BASE_FLAGS[$idx]}"
+    # Past "--", nothing is a flag any more (see strip_context_flags) -- copy the rest through
+    # verbatim rather than risk matching positional data on the far side. Uses the ORIGINAL
+    # index, not out's own length: a prior dedup skip means out is already shorter than idx, so
+    # slicing from "${#out[@]}" here would silently re-include (and duplicate) already-emitted
+    # tokens.
+    if [ "$tok" = "--" ]; then
+      out+=("${BASE_FLAGS[@]:$idx}")
+      break
+    fi
+    is_idempotent=0
+    for flag in "${IDEMPOTENT_FLAGS[@]}"; do [ "$tok" = "$flag" ] && { is_idempotent=1; break; }; done
+    if [ "$is_idempotent" = 1 ]; then
+      [ -n "${seen[$tok]:-}" ] && continue
+      seen[$tok]=1
+    fi
+    out+=("$tok")
+  done
+  BASE_FLAGS=("${out[@]}")
 }
 
 # Only a "kind":"id" agent_session (currently claude) is a real per-session identifier; pi's is
