@@ -1,6 +1,6 @@
 {
   "name": "herdr-kit",
-  "description": "Herdr agent rotation tools: checkpoint-and-relaunch a running claude/pi/codex agent in place, including self-rotation via a detached daemon.",
+  "description": "Herdr agent tools: checkpoint-and-relaunch a running claude/pi/codex agent in place (including self-rotation via a detached daemon), plus non-blocking async inter-agent messaging.",
   "version": "0.1.0",
   "author": {
     "name": "PoYen Chen"

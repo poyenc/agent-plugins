@@ -62,6 +62,13 @@ assert_eq "reply never passes --wait" "0" "$(grep -c -- '--wait' "$MOCK_CALLS")"
 assert_eq "reply envelope carries the reply:<id> tag and sender identity" "1" "$(grep -c 'reply:abc123 from skill-writer@wF:p1' "$MOCK_CALLS")"
 assert_eq "reply output includes the same message_id" "1" "$(printf '%s' "$out" | grep -c '"message_id":"abc123"')"
 
+setup
+export MOCK_SENDER_NAME=skill-writer
+out=$(bash "$S/herdr-message" reply wF:p1 'a"b' "done" 2>&1); rc=$?
+assert_eq "reply with a quote-containing id still exits 0" "0" "$rc"
+assert_eq "reply output is valid JSON even with a quote-containing id" "0" "$(printf '%s' "$out" | jq . >/dev/null 2>&1; echo $?)"
+assert_eq "reply output's message_id decodes back to the literal quote-containing id" "1" "$(printf '%s' "$out" | jq -r '.message_id' | grep -cF 'a"b')"
+
 ( HERDR_ENV=0; bash "$S/herdr-message" send wK:p1 "x" >/dev/null 2>&1 ); assert_eq "send no-op outside herdr" "0" "$?"
 ( HERDR_ENV=1; bash "$S/herdr-message" send wK:p1 >/dev/null 2>&1 ); assert_eq "send missing text dies" "1" "$?"
 ( HERDR_ENV=1 HERDR_PANE_ID=wF:p1; bash "$S/herdr-message" reply wF:p1 abc123 >/dev/null 2>&1 ); assert_eq "reply missing text dies" "1" "$?"

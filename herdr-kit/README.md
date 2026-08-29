@@ -1,6 +1,6 @@
 # herdr-kit
 
-Herdr agent rotation tools. A home for herdr-related skills that grows over time.
+Herdr agent tools: rotation and async inter-agent messaging. A home for herdr-related skills that grows over time.
 
 ## Skills
 

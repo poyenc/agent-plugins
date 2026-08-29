@@ -57,6 +57,13 @@ build_reply_envelope() {
   printf '[reply:%s from %s]\n%s' "$id" "$from" "$text"
 }
 
+# Prints the send/reply result JSON via jq, not raw printf -- $id (always caller-supplied for
+# reply, never validated) and $target (always caller-supplied) could otherwise produce invalid
+# JSON if they contain a literal quote or backslash. $1=id $2=target
+print_result() {
+  jq -nc --arg id "$1" --arg target "$2" '{"message_id":$id,"sent_to":$target}'
+}
+
 cmd_send() {
   guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
   [ -n "${HERDR_PANE_ID:-}" ] || die "HERDR_PANE_ID is not set -- cannot determine sender identity"
@@ -93,7 +100,7 @@ cmd_send() {
   from=$(sender_from_line)
   envelope=$(build_send_envelope "$id" "$from" "$text" "$callback" "$callback_msg")
   herdr agent prompt "$target" "$envelope" >/dev/null 2>&1 || die "failed to send message to $target"
-  printf '{"message_id":"%s","sent_to":"%s"}\n' "$id" "$target"
+  print_result "$id" "$target"
 }
 
 cmd_reply() {
@@ -105,7 +112,7 @@ cmd_reply() {
   from=$(sender_from_line)
   envelope=$(build_reply_envelope "$id" "$from" "$text")
   herdr agent prompt "$target" "$envelope" >/dev/null 2>&1 || die "failed to send reply to $target"
-  printf '{"message_id":"%s","sent_to":"%s"}\n' "$id" "$target"
+  print_result "$id" "$target"
 }
 
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
