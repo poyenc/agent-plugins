@@ -182,5 +182,13 @@ assert_eq "invalid GUARDRAILS_MAX_READ_BYTES=abc falls back to default, no crash
 out=$(run_hook "$(payload "$FIXTURES/big.txt" "" "")" GUARDRAILS_MAX_READ_BYTES=08)
 assert_eq "invalid GUARDRAILS_MAX_READ_BYTES=08 (leading zero) falls back to default: blocked (big.txt is 200000 bytes > default 65536)" "true" "$(is_block "$out")"
 
+# Regression: 9223372036854775808 (one past bash's signed 64-bit max) is a syntactically valid
+# decimal numeral but wraps to a huge NEGATIVE number in bash arithmetic -- confirmed live that
+# this previously made a 71-byte file get blocked with a nonsensical "71 bytes exceeds
+# 9223372036854775808 bytes" reason. Must fall back to the default (65536) instead, so a small
+# file stays allowed.
+out=$(run_hook "$(payload "$FIXTURES/small.txt" "" "")" GUARDRAILS_MAX_READ_BYTES=9223372036854775808)
+assert_eq "GUARDRAILS_MAX_READ_BYTES one past bash's signed 64-bit max falls back to default, no overflow-induced false block" "" "$out"
+
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
