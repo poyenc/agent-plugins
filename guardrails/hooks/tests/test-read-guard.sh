@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT="$HERE/../scripts/read-guard.sh"
+PASS=0; FAIL=0
+assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; echo "    exp:[$2] act:[$3]"; FAIL=$((FAIL+1)); fi; }
+
+FIXTURES=$(mktemp -d)
+trap 'rm -rf "$FIXTURES"' EXIT
+
+# big.txt: 2000 lines of exactly 100 bytes each (99 'a' + newline) = 200000 bytes total.
+python3 -c "
+for _ in range(2000):
+    print('a' * 99)
+" > "$FIXTURES/big.txt"
+
+# small.txt: 6 bytes, well under any realistic limit.
+printf 'hello\n' > "$FIXTURES/small.txt"
+
+# medium.txt: exactly 2000 bytes (1999 'a' + newline) -- allowed at the 64 KiB default,
+# blocked once GUARDRAILS_MAX_READ_BYTES is lowered below 2000.
+python3 -c "print('a' * 1999)" > "$FIXTURES/medium.txt"
+
+# Same oversized content as big.txt, but skip-listed extensions (one lowercase, one uppercase).
+cp "$FIXTURES/big.txt" "$FIXTURES/big.png"
+cp "$FIXTURES/big.txt" "$FIXTURES/big.PNG"
+
+# $1 = JSON payload, remaining args (optional) = NAME=VALUE env overrides for this one call.
+run_hook() {
+  local json="$1"; shift
+  env "$@" bash -c 'printf "%s" "$1" | bash "$2"' _ "$json" "$SCRIPT"
+}
+
+# $1 = file_path, $2 = offset ("" for omitted), $3 = limit ("" for omitted)
+payload() {
+  python3 -c "
+import json, sys
+d = {'session_id': 'test', 'tool_name': 'Read', 'tool_input': {'file_path': sys.argv[1]}}
+if sys.argv[2]:
+    d['tool_input']['offset'] = int(sys.argv[2])
+if sys.argv[3]:
+    d['tool_input']['limit'] = int(sys.argv[3])
+print(json.dumps(d))
+" "$1" "$2" "$3"
+}
+
+is_block() { printf '%s' "$1" | jq -r '.decision == "block"' 2>/dev/null; }
+
+# 1. Whole file over the limit -> blocked.
+out=$(run_hook "$(payload "$FIXTURES/big.txt" "" "")")
+assert_eq "whole file over limit: blocked" "true" "$(is_block "$out")"
+
+# 2. Ranged read whose slice is under the limit -> allowed (lines 1-100 = 10000 bytes).
+out=$(run_hook "$(payload "$FIXTURES/big.txt" "1" "100")")
+assert_eq "ranged read under limit: allowed (no output)" "" "$out"
+
+# 3. Ranged read whose slice is over the limit -> blocked (lines 1-700 = 70000 bytes).
+out=$(run_hook "$(payload "$FIXTURES/big.txt" "1" "700")")
+assert_eq "ranged read over limit: blocked" "true" "$(is_block "$out")"
+
+# 4. offset given, limit omitted -> measures offset..end-of-file (lines 1901-2000 = 10000 bytes).
+out=$(run_hook "$(payload "$FIXTURES/big.txt" "1901" "")")
+assert_eq "offset only (to end of file), under limit: allowed (no output)" "" "$out"
+
+# 5. Skip-listed extension (lowercase), oversized content -> allowed regardless of size.
+out=$(run_hook "$(payload "$FIXTURES/big.png" "" "")")
+assert_eq "skip-listed extension (.png): allowed (no output)" "" "$out"
+
+# 6. Skip-listed extension, uppercase -> extension match is case-insensitive.
+out=$(run_hook "$(payload "$FIXTURES/big.PNG" "" "")")
+assert_eq "skip-listed extension (.PNG, uppercase): allowed (no output)" "" "$out"
+
+# 7. Small text file -> allowed.
+out=$(run_hook "$(payload "$FIXTURES/small.txt" "" "")")
+assert_eq "small file: allowed (no output)" "" "$out"
+
+# 8. Medium file at the default 64 KiB limit -> allowed.
+out=$(run_hook "$(payload "$FIXTURES/medium.txt" "" "")")
+assert_eq "medium file (2000 bytes) at default limit: allowed (no output)" "" "$out"
+
+# 9. Same medium file, GUARDRAILS_MAX_READ_BYTES lowered below its size -> blocked.
+out=$(run_hook "$(payload "$FIXTURES/medium.txt" "" "")" GUARDRAILS_MAX_READ_BYTES=1000)
+assert_eq "medium file with GUARDRAILS_MAX_READ_BYTES=1000: blocked" "true" "$(is_block "$out")"
+
+# 10. Fail-open: missing file_path -> allowed (no output), no crash.
+out=$(run_hook '{"session_id":"test","tool_name":"Read","tool_input":{}}')
+assert_eq "missing file_path: allowed (no output)" "" "$out"
+
+# 11. Fail-open: file_path does not exist -> allowed (no output), no crash.
+out=$(run_hook "$(payload "$FIXTURES/does-not-exist.txt" "" "")")
+assert_eq "nonexistent file: allowed (no output)" "" "$out"
+
+# 12. Fail-open: non-numeric offset -> allowed (no output), no crash.
+out=$(run_hook '{"session_id":"test","tool_name":"Read","tool_input":{"file_path":"'"$FIXTURES/big.txt"'","offset":"abc"}}')
+assert_eq "non-numeric offset: allowed (no output)" "" "$out"
+
+echo "PASS=$PASS FAIL=$FAIL"
+[ "$FAIL" -eq 0 ]
