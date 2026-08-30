@@ -31,6 +31,13 @@ run_hook() {
   env "$@" bash -c 'printf "%s" "$1" | bash "$2"' _ "$json" "$SCRIPT"
 }
 
+# Same as run_hook, but returns the process's exit code instead of its stdout.
+run_hook_rc() {
+  local json="$1"; shift
+  env "$@" bash -c 'printf "%s" "$1" | bash "$2"' _ "$json" "$SCRIPT" >/dev/null 2>&1
+  echo $?
+}
+
 # $1 = file_path, $2 = offset ("" for omitted), $3 = limit ("" for omitted)
 payload() {
   python3 -c "
@@ -90,6 +97,12 @@ assert_eq "missing file_path: allowed (no output)" "" "$out"
 out=$(run_hook "$(payload "$FIXTURES/does-not-exist.txt" "" "")")
 assert_eq "nonexistent file: allowed (no output)" "" "$out"
 
+# Fail-open: nonexistent file via the RANGED-read branch (offset/limit given) -- allowed
+# (no output), no crash. The whole-file branch's fail-open-on-missing-file case is already
+# covered above; this exercises the separate sed/wc code path at read-guard.sh's ranged branch.
+out=$(run_hook "$(payload "$FIXTURES/does-not-exist.txt" "1" "100")")
+assert_eq "nonexistent file via ranged-read branch: allowed (no output)" "" "$out"
+
 # 12. Fail-open: non-numeric offset -> allowed (no output), no crash.
 out=$(run_hook '{"session_id":"test","tool_name":"Read","tool_input":{"file_path":"'"$FIXTURES/big.txt"'","offset":"abc"}}')
 assert_eq "non-numeric offset: allowed (no output)" "" "$out"
@@ -112,6 +125,14 @@ assert_eq "offset=0: allowed (no output, sed error fails open)" "" "$out"
 # limit -> allowed, not a crash. Confirmed live: `sed -n '1,0p'` exits 0 and prints line 1 only.
 out=$(run_hook "$(payload "$FIXTURES/big.txt" "1" "0")")
 assert_eq "limit=0: allowed (no output, degenerate 1-line slice under limit)" "" "$out"
+
+# The hook process itself must always exit 0 -- both on allow AND on block. A PreToolUse hook
+# signals its decision via the JSON body on stdout, not via its own exit code; a non-zero exit
+# here would be a crash, not a decision.
+rc=$(run_hook_rc "$(payload "$FIXTURES/small.txt" "" "")")
+assert_eq "allow path: hook process exits 0" "0" "$rc"
+rc=$(run_hook_rc "$(payload "$FIXTURES/big.txt" "" "")")
+assert_eq "block path: hook process exits 0 (decision is in the JSON body, not the exit code)" "0" "$rc"
 
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
