@@ -24,6 +24,14 @@ python3 -c "print('a' * 1999)" > "$FIXTURES/medium.txt"
 # Same oversized content as big.txt, but skip-listed extensions (one lowercase, one uppercase).
 cp "$FIXTURES/big.txt" "$FIXTURES/big.png"
 cp "$FIXTURES/big.txt" "$FIXTURES/big.PNG"
+cp "$FIXTURES/big.txt" "$FIXTURES/big.pdf"
+cp "$FIXTURES/big.txt" "$FIXTURES/big.ipynb"
+
+# unterminated.txt: one short newline-terminated line, then a large line with NO trailing
+# newline -- `wc -l` undercounts this file's true content by one line (it only counts
+# newlines), which the OLD code's `wc -l`-based end-of-file line number relied on. Total size
+# (70002 bytes) exceeds the default 64 KiB limit.
+{ printf 'x\n'; head -c 70000 /dev/zero | tr '\0' 'a'; } > "$FIXTURES/unterminated.txt"
 
 # $1 = JSON payload, remaining args (optional) = NAME=VALUE env overrides for this one call.
 run_hook() {
@@ -76,6 +84,12 @@ assert_eq "skip-listed extension (.png): allowed (no output)" "" "$out"
 # 6. Skip-listed extension, uppercase -> extension match is case-insensitive.
 out=$(run_hook "$(payload "$FIXTURES/big.PNG" "" "")")
 assert_eq "skip-listed extension (.PNG, uppercase): allowed (no output)" "" "$out"
+
+# Skip-list also covers .pdf/.ipynb, not just .png/.PNG.
+out=$(run_hook "$(payload "$FIXTURES/big.pdf" "" "")")
+assert_eq "skip-listed extension (.pdf): allowed (no output)" "" "$out"
+out=$(run_hook "$(payload "$FIXTURES/big.ipynb" "" "")")
+assert_eq "skip-listed extension (.ipynb): allowed (no output)" "" "$out"
 
 # 7. Small text file -> allowed.
 out=$(run_hook "$(payload "$FIXTURES/small.txt" "" "")")
@@ -133,6 +147,27 @@ rc=$(run_hook_rc "$(payload "$FIXTURES/small.txt" "" "")")
 assert_eq "allow path: hook process exits 0" "0" "$rc"
 rc=$(run_hook_rc "$(payload "$FIXTURES/big.txt" "" "")")
 assert_eq "block path: hook process exits 0 (decision is in the JSON body, not the exit code)" "0" "$rc"
+
+# Regression: offset-only read on a file whose final line has no trailing newline must still
+# measure and block correctly -- confirmed live that the old wc -l-based approach undercounted
+# this by one line, letting a 70002-byte unterminated read straight through unblocked.
+out=$(run_hook "$(payload "$FIXTURES/unterminated.txt" "1" "")")
+assert_eq "offset-only read on a file with an unterminated final line: blocked" "true" "$(is_block "$out")"
+
+# Regression: a leading-zero numeric string (e.g. "08") is technically all-digits but bash
+# arithmetic treats a leading-zero literal as octal, and "08" isn't valid octal -- must fail
+# open (allowed), not crash.
+out=$(run_hook '{"session_id":"test","tool_name":"Read","tool_input":{"file_path":"'"$FIXTURES/big.txt"'","offset":1,"limit":"08"}}')
+assert_eq "leading-zero limit (08): allowed (no output), no crash" "" "$out"
+out=$(run_hook '{"session_id":"test","tool_name":"Read","tool_input":{"file_path":"'"$FIXTURES/big.txt"'","offset":"08","limit":100}}')
+assert_eq "leading-zero offset (08): allowed (no output), no crash" "" "$out"
+
+# Regression: an invalid/unparseable GUARDRAILS_MAX_READ_BYTES falls back to the documented
+# default (65536) instead of crashing.
+out=$(run_hook "$(payload "$FIXTURES/small.txt" "" "")" GUARDRAILS_MAX_READ_BYTES=abc)
+assert_eq "invalid GUARDRAILS_MAX_READ_BYTES=abc falls back to default, no crash" "" "$out"
+out=$(run_hook "$(payload "$FIXTURES/big.txt" "" "")" GUARDRAILS_MAX_READ_BYTES=08)
+assert_eq "invalid GUARDRAILS_MAX_READ_BYTES=08 (leading zero) falls back to default: blocked (big.txt is 200000 bytes > default 65536)" "true" "$(is_block "$out")"
 
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]

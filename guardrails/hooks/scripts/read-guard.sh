@@ -6,6 +6,11 @@
 set -euo pipefail
 
 max_bytes="${GUARDRAILS_MAX_READ_BYTES:-65536}"
+# A leading-zero numeral (e.g. "08") is rejected outright rather than accepted as a plain
+# decimal: bash arithmetic treats a leading-zero literal as OCTAL, and "08" is not valid octal
+# (digit 8), which crashes `(( size > max_bytes ))` instead of comparing anything. Falls back
+# to the documented default rather than failing open/closed on this operator-configured value.
+[[ "$max_bytes" =~ ^(0|[1-9][0-9]*)$ ]] || max_bytes=65536
 
 payload=$(cat)
 
@@ -31,14 +36,22 @@ if [ -z "$offset" ] && [ -z "$limit" ]; then
   size=$(stat -c%s -- "$file_path" 2>/dev/null) || exit 0
 else
   start="${offset:-1}"
-  [[ "$start" =~ ^[0-9]+$ ]] || exit 0
+  # Same leading-zero/octal rejection as max_bytes above -- this value flows into bash
+  # arithmetic below (`start + limit - 1`), so it must be a safe plain-decimal literal.
+  [[ "$start" =~ ^(0|[1-9][0-9]*)$ ]] || exit 0
   if [ -n "$limit" ]; then
-    [[ "$limit" =~ ^[0-9]+$ ]] || exit 0
+    [[ "$limit" =~ ^(0|[1-9][0-9]*)$ ]] || exit 0
     end=$((start + limit - 1))
+    size=$(sed -n "${start},${end}p" -- "$file_path" 2>/dev/null | wc -c) || exit 0
   else
-    end=$(wc -l < "$file_path" 2>/dev/null) || exit 0
+    # limit omitted -- read from start to the actual end of the file. Uses sed's own "$"
+    # end-of-file address rather than computing a line count via `wc -l`: `wc -l` counts
+    # NEWLINES, so a file whose final line has no trailing newline is undercounted by exactly
+    # one line -- confirmed live that this silently dropped a 70,000-byte unterminated final
+    # line from the measured size entirely, letting an oversized read straight through
+    # unblocked. "$" always means the true last line regardless of trailing-newline presence.
+    size=$(sed -n "${start},\$p" -- "$file_path" 2>/dev/null | wc -c) || exit 0
   fi
-  size=$(sed -n "${start},${end}p" -- "$file_path" 2>/dev/null | wc -c) || exit 0
 fi
 
 [[ "$size" =~ ^[0-9]+$ ]] || exit 0
