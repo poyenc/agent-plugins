@@ -65,6 +65,15 @@ is_block() { printf '%s' "$1" | jq -r '.decision == "block"' 2>/dev/null; }
 out=$(run_hook "$(payload "$FIXTURES/big.txt" "" "")")
 assert_eq "whole file over limit: blocked" "true" "$(is_block "$out")"
 
+# Same call as above -- also verify the reason text itself states the actual numbers and
+# carries the required anti-chunking warning and delegation instruction, not just that SOME
+# block reason was returned.
+out=$(run_hook "$(payload "$FIXTURES/big.txt" "" "")")
+assert_eq "block reason states the actual size" "true" "$(printf '%s' "$out" | jq -R 'test("200000 bytes")' 2>/dev/null)"
+assert_eq "block reason states the actual limit" "true" "$(printf '%s' "$out" | jq -R 'test("65536-byte limit")' 2>/dev/null)"
+assert_eq "block reason warns chunking is still a violation" "true" "$(printf '%s' "$out" | jq -R 'test("still a violation")' 2>/dev/null)"
+assert_eq "block reason instructs delegating to a subagent" "true" "$(printf '%s' "$out" | jq -R 'test("Delegate reading/summarizing")' 2>/dev/null)"
+
 # 2. Ranged read whose slice is under the limit -> allowed (lines 1-100 = 10000 bytes).
 out=$(run_hook "$(payload "$FIXTURES/big.txt" "1" "100")")
 assert_eq "ranged read under limit: allowed (no output)" "" "$out"
@@ -76,6 +85,10 @@ assert_eq "ranged read over limit: blocked" "true" "$(is_block "$out")"
 # 4. offset given, limit omitted -> measures offset..end-of-file (lines 1901-2000 = 10000 bytes).
 out=$(run_hook "$(payload "$FIXTURES/big.txt" "1901" "")")
 assert_eq "offset only (to end of file), under limit: allowed (no output)" "" "$out"
+
+# limit given, offset omitted -> offset defaults to line 1 (lines 1-100 = 10000 bytes, under limit).
+out=$(run_hook "$(payload "$FIXTURES/big.txt" "" "100")")
+assert_eq "limit only (offset defaults to 1), under limit: allowed (no output)" "" "$out"
 
 # 5. Skip-listed extension (lowercase), oversized content -> allowed regardless of size.
 out=$(run_hook "$(payload "$FIXTURES/big.png" "" "")")

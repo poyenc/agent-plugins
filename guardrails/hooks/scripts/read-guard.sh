@@ -8,9 +8,15 @@ set -euo pipefail
 max_bytes="${GUARDRAILS_MAX_READ_BYTES:-65536}"
 # A leading-zero numeral (e.g. "08") is rejected outright rather than accepted as a plain
 # decimal: bash arithmetic treats a leading-zero literal as OCTAL, and "08" is not valid octal
-# (digit 8), which crashes `(( size > max_bytes ))` instead of comparing anything. Falls back
-# to the documented default rather than failing open/closed on this operator-configured value.
-[[ "$max_bytes" =~ ^(0|[1-9][0-9]*)$ ]] || max_bytes=65536
+# (digit 8), which crashes `(( size > max_bytes ))` instead of comparing anything. Also capped
+# at 15 digits: a syntactically-valid but astronomically large numeral (e.g.
+# 9223372036854775808, one past bash's signed 64-bit max) wraps to a huge NEGATIVE number in
+# bash arithmetic instead of erroring -- confirmed live that this made a 71-byte file get
+# blocked with a nonsensical "71 bytes exceeds 9223372036854775808 bytes" reason. 15 digits
+# comfortably covers any realistic byte count while staying far clear of that overflow
+# boundary. Falls back to the documented default rather than failing open/closed on this
+# operator-configured value.
+[[ "$max_bytes" =~ ^(0|[1-9][0-9]{0,14})$ ]] || max_bytes=65536
 
 payload=$(cat)
 
@@ -36,11 +42,12 @@ if [ -z "$offset" ] && [ -z "$limit" ]; then
   size=$(stat -c%s -- "$file_path" 2>/dev/null) || exit 0
 else
   start="${offset:-1}"
-  # Same leading-zero/octal rejection as max_bytes above -- this value flows into bash
-  # arithmetic below (`start + limit - 1`), so it must be a safe plain-decimal literal.
-  [[ "$start" =~ ^(0|[1-9][0-9]*)$ ]] || exit 0
+  # Same leading-zero/octal rejection AND 15-digit length bound as max_bytes above -- this
+  # value flows into bash arithmetic below (`start + limit - 1`), so it must be both a safe
+  # plain-decimal literal and small enough that the sum can never overflow.
+  [[ "$start" =~ ^(0|[1-9][0-9]{0,14})$ ]] || exit 0
   if [ -n "$limit" ]; then
-    [[ "$limit" =~ ^(0|[1-9][0-9]*)$ ]] || exit 0
+    [[ "$limit" =~ ^(0|[1-9][0-9]{0,14})$ ]] || exit 0
     end=$((start + limit - 1))
     size=$(sed -n "${start},${end}p" -- "$file_path" 2>/dev/null | wc -c) || exit 0
   else
