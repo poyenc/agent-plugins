@@ -94,5 +94,24 @@ assert_eq "nonexistent file: allowed (no output)" "" "$out"
 out=$(run_hook '{"session_id":"test","tool_name":"Read","tool_input":{"file_path":"'"$FIXTURES/big.txt"'","offset":"abc"}}')
 assert_eq "non-numeric offset: allowed (no output)" "" "$out"
 
+# Fail-open: non-numeric limit -> allowed (no output), no crash.
+out=$(run_hook '{"session_id":"test","tool_name":"Read","tool_input":{"file_path":"'"$FIXTURES/big.txt"'","offset":1,"limit":"xyz"}}')
+assert_eq "non-numeric limit: allowed (no output)" "" "$out"
+
+# Degenerate range: offset=0 -> GNU sed rejects line address 0 as a start address, caught by
+# the existing "|| exit 0" guard on read-guard.sh's sed pipeline -> fails open (allowed).
+# Confirmed live: `sed -n '0,3p'` errors with "invalid usage of line address 0". Not reachable
+# from the real Claude Code harness (confirmed live via a temporary probe hook: offset is only
+# ever omitted entirely or a positive integer >= 1), but the code must still degrade safely if
+# it somehow occurred.
+out=$(run_hook "$(payload "$FIXTURES/big.txt" "0" "5")")
+assert_eq "offset=0: allowed (no output, sed error fails open)" "" "$out"
+
+# Degenerate range: limit=0 -> end = start + limit - 1 = 0, so "sed -n '1,0p'" runs successfully
+# and prints just the start line (a small, correctly-measured 1-line slice), well under the
+# limit -> allowed, not a crash. Confirmed live: `sed -n '1,0p'` exits 0 and prints line 1 only.
+out=$(run_hook "$(payload "$FIXTURES/big.txt" "1" "0")")
+assert_eq "limit=0: allowed (no output, degenerate 1-line slice under limit)" "" "$out"
+
 echo "PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
