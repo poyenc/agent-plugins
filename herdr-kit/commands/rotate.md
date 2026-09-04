@@ -1,37 +1,36 @@
 ---
-name: rotate
 description: >
   Rotate a running herdr coding agent (claude, pi, or codex): checkpoint its
   context to a handoff document, then exit and relaunch it in the SAME pane as a
   fresh session, replaying the launch flags (model, effort, and other options)
-  recovered from the process argv — see "Known limitations" in SKILL.md for the
+  recovered from the process argv — see "Known limitations" below for the
   cases (pi verification, positional prompts) this doesn't fully cover. Only
   invoke this when the USER
   explicitly asks for it in this turn — e.g. "rotate this agent", "refresh the
   agent's context", "restart the agent but keep its setup". Never self-trigger
   on your own judgment (e.g. noticing your own or another agent's context is
   getting full) — surface that observation to the user and let them decide.
+  To rotate the calling agent's own pane, use /rotate-self instead.
   No-op outside herdr (HERDR_ENV != 1).
+argument-hint: '<name-or-pane> [--name N] [--model M] [--effort E]'
 disable-model-invocation: true
 allowed-tools: Bash(*/scripts/herdr-rotate *), Bash(*/scripts/herdr-rotate-* *), Bash(herdr *)
 ---
 
-# rotate
-
 Rotate a running herdr agent in place: handoff -> exit -> relaunch (fresh
 session, same pane/tab/workspace/name, same launch command).
 
-**This is a two-step, agent-in-the-loop skill.** A bash script cannot block
+**This is a two-step, agent-in-the-loop command.** A bash script cannot block
 waiting for another agent's reply, so the invoking agent (you) drives it in two
 calls with a pause in between.
+
+Raw slash-command arguments: `$ARGUMENTS`
 
 ## Usage
 
 ### Step 1 — request the handoff
 
-`<base>` is the directory containing this SKILL.md file (e.g. `.../herdr-kit/skills/rotate`).
-
-    <base>/../scripts/herdr-rotate handoff <name-or-pane> [--name N] [--model M] [--effort E]
+    ${CLAUDE_PLUGIN_ROOT}/skills/scripts/herdr-rotate handoff <name-or-pane> [--name N] [--model M] [--effort E]
 
 This resolves the target and captures its launch argv. If no `--model`/`--effort`
 override was given, it also detects a live mid-session model/effort change
@@ -70,7 +69,7 @@ path straight out of it.
 
 Then run, passing the **tag from the ping** (not just the bare name) as the target:
 
-    <base>/../scripts/herdr-rotate finish <name-or-pane>[@<session-prefix>] <handoff-path> [--name N] [--model M] [--effort E] [--kickoff "<message>"|off]
+    ${CLAUDE_PLUGIN_ROOT}/skills/scripts/herdr-rotate finish <name-or-pane>[@<session-prefix>] <handoff-path> [--name N] [--model M] [--effort E] [--kickoff "<message>"|off]
 
 The `@<session-prefix>` is optional — omit it to skip the staleness check — but
 including it is how you get the protection described above.
@@ -131,13 +130,13 @@ back to whatever was already there, never replays a corrupted value).
 
 - **A positional prompt in the original launch is replayed.** If the target was started with
   a trailing prompt argument (e.g. `codex -m x "implement the migration"`, or any launch that
-  deviates from this skill's own recommended pattern of flags-only + a separate follow-up
+  deviates from this command's own recommended pattern of flags-only + a separate follow-up
   `agent prompt`), that argument survives argv capture and is replayed on relaunch — the fresh
   instance re-executes it as its first turn, before the kickoff prompt. This is not
   auto-stripped: reliably telling a genuine trailing positional apart from an ordinary flag's
-  value (e.g. `--system-prompt "some text"`) needs a full per-kind flag-arity table this skill
+  value (e.g. `--system-prompt "some text"`) needs a full per-kind flag-arity table this command
   doesn't have, and guessing wrong risks silently corrupting some other flag instead. Avoid by
-  never launching with a positional prompt in the first place (this skill's own recommended
+  never launching with a positional prompt in the first place (this command's own recommended
   pattern already avoids it).
 - **The handoff ping wait has no timeout.** Once you call `handoff`, you're expected to wait
   for exactly one ping before calling `finish` on that same target — don't issue a second
@@ -148,7 +147,8 @@ back to whatever was already there, never replays a corrupted value).
   exit-and-relaunch step needs this very command's own process to have already exited before
   it can confirm the pane empty, which can never happen while it's still running as that
   command. Have a different agent run `finish` on this target. (`handoff` on your own pane is
-  fine — it only sends a prompt and returns, nothing to wait out.)
+  fine — it only sends a prompt and returns, nothing to wait out.) To rotate your own pane, use
+  `/rotate-self` instead, which works around this via a detached daemon process.
 - **The name-collision check before relaunch is check-then-use, not a reservation.** Between
   confirming a name is free and `agent start` actually claiming it, another agent could take
   it first — herdr's CLI has no atomic "reserve this name" primitive to close that window.

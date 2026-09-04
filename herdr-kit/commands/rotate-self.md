@@ -1,41 +1,40 @@
 ---
-name: rotate-self
 description: >
   Rotate THIS agent's own pane: checkpoint its own context to a handoff document, then
   exit and relaunch itself in place via a detached daemon process. Only invoke this when
   the USER explicitly asks the current agent to rotate/restart itself in this turn.
   Never self-trigger on your own judgment (e.g. noticing your own context is getting
   full) -- surface that observation to the user and let them decide. To rotate a
-  DIFFERENT agent's pane, use rotate instead -- this skill only works on the
+  DIFFERENT agent's pane, use /rotate instead -- this command only works on the
   calling agent's own pane. No-op outside herdr (HERDR_ENV != 1).
+argument-hint: '<handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]'
 disable-model-invocation: true
 allowed-tools: Bash(*/scripts/herdr-rotate-self *), Bash(herdr *)
 ---
 
-# rotate-self
-
 Rotate the calling agent's own pane in place: write your own handoff, launch a detached
 daemon, then stop. The daemon runs herdr-rotate's own `finish` step against your pane
 from a separate process -- the only way around `finish`'s own self-rotation deadlock
-(see rotate's SKILL.md, "Known limitations": `finish` cannot target the calling
-agent's own pane, because it would need its own process to have already exited before
-it can confirm the pane empty).
+(see `/rotate`'s "Known limitations": `finish` cannot target the calling agent's own
+pane, because it would need its own process to have already exited before it can
+confirm the pane empty).
 
 ## Usage
 
 1. Write your own handoff document now -- if you have a handoff skill available, invoke
    it to get an absolute path; do not duplicate its judgment here. Do this BEFORE the
-   next step; there is no ping/wait mechanism in this skill, unlike rotate's
+   next step; there is no ping/wait mechanism in this command, unlike rotate's
    handoff/finish split -- you are not waiting on a different agent's turn to complete.
 
 2. Run:
 
-       <base>/../scripts/herdr-rotate-self <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]
+       ${CLAUDE_PLUGIN_ROOT}/skills/scripts/herdr-rotate-self <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]
 
-   where `<base>` is the directory containing this SKILL.md file (e.g.
-   `.../herdr-kit/skills/rotate-self`). This validates the handoff file, resolves
-   your own pane/kind, and launches a detached process that will exit and relaunch this
-   pane once you actually stop -- it returns immediately (well under a second).
+   This validates the handoff file, resolves your own pane/kind, and launches a detached
+   process that will exit and relaunch this pane once you actually stop -- it returns
+   immediately (well under a second).
+
+   Raw slash-command arguments: `$ARGUMENTS`
 
 3. **Stop here.** Say nothing further and take no more actions this turn -- you are
    about to be replaced. The detached daemon is watching for your pane to go idle
@@ -69,11 +68,11 @@ is no other notification.
   (bad override, name collision, verify failure), there is no automatic notification --
   the old agent may already be gone. Check the daemon log (its path is printed to stderr
   when you invoke this script) or the pane directly.
-- All of rotate's own known limitations apply verbatim here, since the daemon
+- All of `/rotate`'s own known limitations apply verbatim here, since the daemon
   literally invokes herdr-rotate's own `finish` (positional-prompt replay, name-collision
   check-then-use window, codex global-options-before-subcommand).
 - Model/effort/name validation happens only after you've already stopped talking (inside
   the daemon) -- you get no synchronous feedback if e.g. `--model` is malformed; it only
   shows up in the daemon log.
-- This skill only rotates the CALLING agent's own pane. To rotate a different agent, use
-  `rotate` instead.
+- This command only rotates the CALLING agent's own pane. To rotate a different agent, use
+  `/rotate` instead.
