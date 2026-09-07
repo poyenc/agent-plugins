@@ -171,6 +171,7 @@ capture_argv() {
   [ "${#raw[@]}" -gt 0 ] || die "no $kind process on pane $pane"
   mapfile -d '' -t BASE_FLAGS < <(strip_context_flags "$kind" "${raw[@]:1}")
   dedupe_idempotent_flags
+  drop_configured_flags "$kind"
 }
 
 # Drops repeat occurrences of a flag on this kind's own IDEMPOTENT_FLAGS list (optional, set by
@@ -212,6 +213,59 @@ dedupe_idempotent_flags() {
       [ -n "${seen[$tok]:-}" ] && continue
       seen[$tok]=1
     fi
+    out+=("$tok")
+  done
+  BASE_FLAGS=("${out[@]}")
+}
+
+# ROTATE_DROP_FLAGS_<KIND> (e.g. ROTATE_DROP_FLAGS_CLAUDE, ROTATE_DROP_FLAGS_CODEX): optional,
+# USER-set (space-separated; never set by a per-kind script -- this is a fact about THIS
+# machine/user's own shell setup, not something the checked-in scripts can know) list of flags to
+# drop ENTIRELY from the replayed argv, rather than collapse to one occurrence like
+# dedupe_idempotent_flags above. Exists for what that function can't reach: `herdr agent start`
+# types the relaunch command into the SAME aliased shell that produced the original captured argv,
+# so even a single deduped occurrence becomes two the instant the alias re-expands -- tolerable for
+# a CLI that doesn't mind a repeat (claude, confirmed live), but fatal for one that hard-errors on
+# any repeat at all (codex's clap parser rejects a repeated --dangerously-bypass-approvals-and-
+# sandbox outright, confirmed live: "cannot be used multiple times"). Dropping the flag here and
+# trusting the SAME alias to supply it again at relaunch is safe specifically because it's the
+# identical alias, on the identical machine/user, that put it in the captured argv in the first
+# place -- the net set of flags actually reaching the binary is unchanged either way.
+#
+# KIND-QUALIFIED, not one variable shared across kinds -- IDEMPOTENT_FLAGS tokens overlap between
+# kinds (e.g. both claude's and pi's list --verbose) purely coincidentally, with no relationship to
+# each other's aliases. A single shared list would drop a kind B's occurrence of a token that's
+# only really safe to drop for kind A (whose alias actually supplies it again) -- confirmed: pi has
+# no alias of its own restoring --verbose, so a shared list configured for claude's alias would
+# silently and permanently delete pi's --verbose from every pi rotation, with nothing ever
+# replacing it. Reading the kind-specific variable name via bash's own indirect expansion
+# (`${!varname}`) means an unset kind's variable is simply empty (safe under `set -u`; confirmed:
+# `${!varname:-}` never errors on an unset target), not a shared fallback.
+#
+# Only ever drops a token that's ALSO on THIS kind's own IDEMPOTENT_FLAGS allowlist -- listing an
+# unrelated or value-bearing flag (e.g. --model) here does nothing, rather than silently
+# corrupting the replayed argv; this mirrors dedupe_idempotent_flags's own reasoning for why an
+# allowlist beats shape-inference. Same shared BASE_FLAGS convention as dedupe_idempotent_flags:
+# single-use, direct global, no nameref footgun.
+drop_configured_flags() {
+  local kind="$1"
+  local varname="ROTATE_DROP_FLAGS_$(printf '%s' "$kind" | tr '[:lower:]' '[:upper:]')"
+  local flags_str="${!varname:-}"
+  [ -n "$flags_str" ] || return 0
+  local -a drop; read -r -a drop <<<"$flags_str"
+  local -a out=()
+  local n=${#BASE_FLAGS[@]} idx tok is_idempotent is_dropped flag d
+  for (( idx=0; idx<n; idx++ )); do
+    tok="${BASE_FLAGS[$idx]}"
+    if [ "$tok" = "--" ]; then
+      out+=("${BASE_FLAGS[@]:$idx}")
+      break
+    fi
+    is_idempotent=0
+    for flag in "${IDEMPOTENT_FLAGS[@]}"; do [ "$tok" = "$flag" ] && { is_idempotent=1; break; }; done
+    is_dropped=0
+    for d in "${drop[@]}"; do [ "$tok" = "$d" ] && { is_dropped=1; break; }; done
+    [ "$is_idempotent" = 1 ] && [ "$is_dropped" = 1 ] && continue
     out+=("$tok")
   done
   BASE_FLAGS=("${out[@]}")

@@ -11,7 +11,9 @@ setup(){ # $1=kind $2=name  -> exports fresh state + PATH
   export MOCK_KIND="$1" MOCK_PANE="wG:p4" MOCK_NAME="$2"
   unset MOCK_VERIFY_ARGV MOCK_COLLISION_NAME MOCK_COLLISION_PANE MOCK_FAIL_KICKOFF \
         MOCK_PANE_CHANGE_AFTER MOCK_PANE_2 MOCK_SESSION MOCK_SESSION_2 MOCK_SESSION_CHANGE_AFTER \
-        MOCK_CLAUDE_MODAL_STUCK MOCK_PI_MODAL_STUCK MOCK_CLAUDE_QUIT_CONFIRM
+        MOCK_CLAUDE_MODAL_STUCK MOCK_PI_MODAL_STUCK MOCK_CLAUDE_QUIT_CONFIRM \
+        MOCK_ALIAS_INJECT_FLAG MOCK_ALIAS_MAX_OCCURRENCES \
+        ROTATE_DROP_FLAGS_CLAUDE ROTATE_DROP_FLAGS_CODEX ROTATE_DROP_FLAGS_PI
   printf -- '--model\nopus\n--verbose\n' > "$MOCK_STATE/argv"   # original launch flags
   export PATH="$HERE/mock:$PATH"
   export ROTATE_EXIT_POLL_SECS=5 ROTATE_VERIFY_POLL_SECS=5 ROTATE_DETECT_POLL_SECS=1
@@ -314,6 +316,49 @@ run "$S/herdr-rotate-claude" finish lead "$HANDOFF_PATH" >/dev/null 2>&1
 assert_eq "finish completes despite claude's quit-confirmation menu" "0" "$?"
 assert_eq "the confirmation menu was answered with Enter" "1" "$(grep -c 'agent send-keys.*enter' "$MOCK_CALLS")"
 unset MOCK_CLAUDE_QUIT_CONFIRM
+
+# 5i. codex's own operator shell alias (e.g. `alias codex='codex
+# --dangerously-bypass-approvals-and-sandbox'`) re-expands at the exact moment herdr agent start
+# types the relaunch command into that aliased shell -- even though capture_argv/
+# dedupe_idempotent_flags already collapsed the captured argv down to exactly one occurrence, the
+# alias adds a second one, and codex's own CLI parser hard-errors on any repeat at all (reproduced
+# live: "the argument '--dangerously-bypass-approvals-and-sandbox' cannot be used multiple
+# times") -- unlike claude, which tolerates a repeat. Without ROTATE_DROP_FLAGS_CODEX, this
+# crashes relaunch every time on a box with that alias.
+setup codex worker
+printf -- '--dangerously-bypass-approvals-and-sandbox\n--model\nopus\n' > "$MOCK_STATE/argv"
+export MOCK_ALIAS_INJECT_FLAG='--dangerously-bypass-approvals-and-sandbox' MOCK_ALIAS_MAX_OCCURRENCES=1
+run "$S/herdr-rotate-codex" handoff worker >/dev/null 2>&1
+run "$S/herdr-rotate-codex" finish worker "$HANDOFF_PATH" >/dev/null 2>&1
+assert_eq "without ROTATE_DROP_FLAGS_CODEX, the alias-doubled flag crashes relaunch (reproduces the bug)" "1" "$?"
+
+# ROTATE_DROP_FLAGS_CODEX lets the operator opt into dropping the flag from the REPLAYED argv
+# entirely instead, trusting the SAME alias to supply it again at relaunch -- the net set of flags
+# actually reaching codex is unchanged, but our own side never contributes a second copy.
+setup codex worker
+printf -- '--dangerously-bypass-approvals-and-sandbox\n--model\nopus\n' > "$MOCK_STATE/argv"
+export MOCK_ALIAS_INJECT_FLAG='--dangerously-bypass-approvals-and-sandbox' MOCK_ALIAS_MAX_OCCURRENCES=1
+export ROTATE_DROP_FLAGS_CODEX='--dangerously-bypass-approvals-and-sandbox'
+run "$S/herdr-rotate-codex" handoff worker >/dev/null 2>&1
+run "$S/herdr-rotate-codex" finish worker "$HANDOFF_PATH" >/dev/null 2>&1
+assert_eq "with ROTATE_DROP_FLAGS_CODEX, the flag is dropped before relaunch and finish succeeds" "0" "$?"
+assert_eq "the flag was not among what we asked herdr agent start to relaunch with" "0" \
+  "$(grep '^agent start' "$MOCK_CALLS" | grep -c -- '--dangerously-bypass-approvals-and-sandbox')"
+unset MOCK_ALIAS_INJECT_FLAG MOCK_ALIAS_MAX_OCCURRENCES ROTATE_DROP_FLAGS_CODEX
+
+# Cross-kind isolation, exercised through the real dispatch (not just the pure function): a
+# ROTATE_DROP_FLAGS_CLAUDE that happens to name a flag ALSO on pi's own IDEMPOTENT_FLAGS allowlist
+# (e.g. --verbose, listed for both kinds coincidentally) must never affect a pi rotation -- pi has
+# no alias restoring it, so dropping it there would be a silent, permanent, unrelated regression.
+setup pi worker
+printf -- '--verbose\n--model\namd-gateway/gpt-5.6-terra\n--thinking\nhigh\n' > "$MOCK_STATE/argv"
+export ROTATE_DROP_FLAGS_CLAUDE='--verbose'
+run "$S/herdr-rotate-pi" handoff worker --model amd-gateway/gpt-5.6-terra --effort high >/dev/null 2>&1
+run "$S/herdr-rotate-pi" finish worker "$HANDOFF_PATH" --model amd-gateway/gpt-5.6-terra --effort high >/dev/null 2>&1
+assert_eq "ROTATE_DROP_FLAGS_CLAUDE does not affect a pi rotation exit 0" "0" "$?"
+assert_eq "pi's --verbose survives a claude-scoped drop list sharing the same flag name" "1" \
+  "$(grep -cx -- '--verbose' "$MOCK_STATE/argv")"
+unset ROTATE_DROP_FLAGS_CLAUDE
 
 # 6. dispatcher routes by kind + forwards (kind=pi) and succeeds across both phases
 setup pi worker

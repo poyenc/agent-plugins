@@ -222,6 +222,83 @@ assert_eq "explicitly-empty IDEMPOTENT_FLAGS is a no-op, not an error" \
   "--dangerously-skip-permissions --dangerously-skip-permissions --model opus" "${BASE_FLAGS[*]}"
 IDEMPOTENT_FLAGS=(--dangerously-skip-permissions --verbose)
 
+# drop_configured_flags: ROTATE_DROP_FLAGS_<KIND> is a USER-set (never per-kind-script-set),
+# KIND-QUALIFIED list of flags to drop ENTIRELY, for the case dedupe_idempotent_flags can't reach
+# -- herdr agent start types the relaunch command into the SAME aliased shell that produced the
+# captured argv, so even a single deduped occurrence becomes two the instant the alias re-expands,
+# which some CLIs (codex) hard-error on. Dropping it here and trusting the same alias to supply it
+# again at relaunch is safe because it's the identical alias on the identical machine/user.
+unset ROTATE_DROP_FLAGS_CLAUDE ROTATE_DROP_FLAGS_PI
+BASE_FLAGS=(--dangerously-skip-permissions --verbose --model opus)
+drop_configured_flags claude
+assert_eq "genuinely-unset ROTATE_DROP_FLAGS_<KIND> is a no-op, not an error" \
+  "--dangerously-skip-permissions --verbose --model opus" "${BASE_FLAGS[*]}"
+
+ROTATE_DROP_FLAGS_CLAUDE=""
+BASE_FLAGS=(--dangerously-skip-permissions --verbose --model opus)
+drop_configured_flags claude
+assert_eq "explicitly-empty ROTATE_DROP_FLAGS_<KIND> is a no-op" \
+  "--dangerously-skip-permissions --verbose --model opus" "${BASE_FLAGS[*]}"
+
+ROTATE_DROP_FLAGS_CLAUDE="--dangerously-skip-permissions"
+BASE_FLAGS=(--dangerously-skip-permissions --verbose --model opus)
+drop_configured_flags claude
+assert_eq "a listed, IDEMPOTENT_FLAGS-vetted flag is dropped entirely (not just collapsed to one)" \
+  "--verbose --model opus" "${BASE_FLAGS[*]}"
+
+# The safety rail: a flag NOT on this kind's own IDEMPOTENT_FLAGS allowlist is never dropped, even
+# if the user lists it -- e.g. a typo'd ROTATE_DROP_FLAGS_CLAUDE='--model' must not silently
+# corrupt the replayed argv by deleting a value-bearing flag.
+ROTATE_DROP_FLAGS_CLAUDE="--model"
+BASE_FLAGS=(--dangerously-skip-permissions --verbose --model opus)
+drop_configured_flags claude
+assert_eq "a flag not on IDEMPOTENT_FLAGS is ignored, even if listed in ROTATE_DROP_FLAGS_<KIND>" \
+  "--dangerously-skip-permissions --verbose --model opus" "${BASE_FLAGS[*]}"
+
+# Multiple listed flags, only the intersecting ones dropped; a listed flag that never repeated
+# (already at exactly one occurrence, the normal post-dedupe state) is still removed entirely.
+ROTATE_DROP_FLAGS_CLAUDE="--dangerously-skip-permissions --verbose --add-dir"
+BASE_FLAGS=(--dangerously-skip-permissions --verbose --model opus --effort high)
+drop_configured_flags claude
+assert_eq "multiple listed+vetted flags all drop; an unrelated listed-but-unvetted one is ignored" \
+  "--model opus --effort high" "${BASE_FLAGS[*]}"
+
+# If somehow more than one occurrence survived to this point (dedupe_idempotent_flags normally
+# already collapsed to one, but drop_configured_flags must not assume that), ALL occurrences are
+# removed, not just the first.
+ROTATE_DROP_FLAGS_CLAUDE="--verbose"
+BASE_FLAGS=(--verbose --model opus --verbose --effort high)
+drop_configured_flags claude
+assert_eq "every occurrence of a dropped flag is removed, not just the first" \
+  "--model opus --effort high" "${BASE_FLAGS[*]}"
+
+# A flag that's listed but never actually present is simply a no-op, not an error.
+ROTATE_DROP_FLAGS_CLAUDE="--dangerously-skip-permissions"
+BASE_FLAGS=(--model opus)
+drop_configured_flags claude
+assert_eq "a listed flag absent from BASE_FLAGS is a no-op" "--model opus" "${BASE_FLAGS[*]}"
+
+# Positional data past "--" is never touched, even if it looks like a dropped flag.
+ROTATE_DROP_FLAGS_CLAUDE="--verbose"
+BASE_FLAGS=(--verbose --model opus -- --verbose should-survive)
+drop_configured_flags claude
+assert_eq "positional data past -- is never touched, even if it looks like a dropped flag" \
+  "--model opus -- --verbose should-survive" "${BASE_FLAGS[*]}"
+
+# Cross-kind isolation: --verbose is coincidentally on BOTH claude's and pi's own IDEMPOTENT_FLAGS
+# allowlist (unrelated to each other's aliases) -- ROTATE_DROP_FLAGS_CLAUDE must NEVER affect a
+# pi rotation, even though pi's IDEMPOTENT_FLAGS also lists --verbose. Reproduces a real reviewed
+# gap: a single SHARED (non-kind-qualified) variable would have silently dropped pi's --verbose
+# too, with no pi alias ever restoring it.
+IDEMPOTENT_FLAGS=(--approve --verbose)   # pi's own list, per herdr-rotate-pi
+BASE_FLAGS=(--verbose --model amd-gateway/gpt-5.6-terra)
+drop_configured_flags pi
+assert_eq "ROTATE_DROP_FLAGS_CLAUDE does not leak into a pi rotation sharing the same flag name" \
+  "--verbose --model amd-gateway/gpt-5.6-terra" "${BASE_FLAGS[*]}"
+IDEMPOTENT_FLAGS=(--dangerously-skip-permissions --verbose)   # restore claude's list for tests below
+
+unset ROTATE_DROP_FLAGS_CLAUDE ROTATE_DROP_FLAGS_PI
+
 # value_of_kv (the read path) must recognize the same --config/--config= forms as the write path
 # above, or a codex agent launched with either can't have its effort changes detected at all.
 assert_eq "value_of_kv recognizes codex's --config key=value form" "low" \

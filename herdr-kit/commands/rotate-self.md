@@ -64,13 +64,14 @@ is no other notification.
 
 ## Known limitations
 
-- If the daemon's wait-for-idle times out (60s default) or `finish` dies for any reason
+- If the daemon's wait-for-idle times out (150s default) or `finish` dies for any reason
   (bad override, name collision, verify failure), there is no automatic notification --
   the old agent may already be gone. Check the daemon log (its path is printed to stderr
   when you invoke this script) or the pane directly.
 - All of `/rotate`'s own known limitations apply verbatim here, since the daemon
   literally invokes herdr-rotate's own `finish` (positional-prompt replay, name-collision
-  check-then-use window, codex global-options-before-subcommand).
+  check-then-use window, codex global-options-before-subcommand, operator shell-alias
+  flag-doubling on relaunch -- see `ROTATE_DROP_FLAGS_<KIND>` in rotate's SKILL.md).
 - Model/effort/name validation happens only after you've already stopped talking (inside
   the daemon) -- you get no synchronous feedback if e.g. `--model` is malformed; it only
   shows up in the daemon log.

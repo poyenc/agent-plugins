@@ -165,3 +165,23 @@ back to whatever was already there, never replays a corrupted value).
   full arity table for all of codex's top-level flags, which carries the same
   wrong-guess-corrupts-another-flag risk as the positional-prompt case above. Avoid by putting
   `resume`/`fork` first when launching codex this way.
+- **An operator's own shell alias for the CLI binary** (e.g. `alias codex='codex
+  --dangerously-bypass-approvals-and-sandbox'`, likewise `alias claude='claude
+  --dangerously-skip-permissions --verbose'`) re-expands at the exact moment `herdr agent start`
+  types the relaunch command into that same aliased shell — even though the captured argv is
+  already collapsed to exactly one occurrence of the flag, the alias adds a further one on top.
+  Harmless for a CLI that tolerates a repeat (claude), but codex's own parser hard-errors on any
+  repeat of `--dangerously-bypass-approvals-and-sandbox` ("cannot be used multiple times"),
+  crashing every relaunch on a box with that alias. Set `ROTATE_DROP_FLAGS_<KIND>` (kind in
+  upper case — `ROTATE_DROP_FLAGS_CLAUDE`, `ROTATE_DROP_FLAGS_CODEX`, `ROTATE_DROP_FLAGS_PI`;
+  space-separated, one or more flags, e.g. `export
+  ROTATE_DROP_FLAGS_CODEX='--dangerously-bypass-approvals-and-sandbox'` right after that kind's
+  alias in your shell rc) to drop such a flag from the replayed argv entirely instead of just
+  deduping it — safe because the identical alias, on the identical machine/user, supplies it
+  again at relaunch regardless. Deliberately kind-qualified, not one variable shared across
+  kinds: `IDEMPOTENT_FLAGS` tokens can coincidentally overlap between kinds (e.g. both claude's
+  and pi's list `--verbose`) with no relationship to each other's aliases — a shared list would
+  drop one kind's occurrence of a token whose alias only really exists for a *different* kind,
+  with nothing ever restoring it. Only ever drops a flag that's also on *that* kind's own vetted
+  `IDEMPOTENT_FLAGS` list, so listing an unrelated or value-bearing flag (e.g. `--model`) here
+  does nothing rather than corrupting the replay.
