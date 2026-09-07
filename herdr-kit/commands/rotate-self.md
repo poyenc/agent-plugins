@@ -71,7 +71,7 @@ is no other notification.
 - All of `/rotate`'s own known limitations apply verbatim here, since the daemon
   literally invokes herdr-rotate's own `finish` (positional-prompt replay, name-collision
   check-then-use window, codex global-options-before-subcommand, operator shell-alias
-  flag-doubling on relaunch -- see `ROTATE_DROP_FLAGS_<KIND>` in rotate's SKILL.md).
+  flag-doubling on relaunch -- see `ROTATE_DROP_FLAGS_<KIND>` in `/rotate`'s own docs).
 - Model/effort/name validation happens only after you've already stopped talking (inside
   the daemon) -- you get no synchronous feedback if e.g. `--model` is malformed; it only
   shows up in the daemon log.
