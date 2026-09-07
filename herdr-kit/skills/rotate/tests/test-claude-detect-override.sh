@@ -283,5 +283,25 @@ herdr(){
 }
 detect_override wG:p4
 assert_eq "Default row's own 'currently X' description is the fallback when it's the selected row" "opus" "$DETECTED_MODEL"
+assert_eq "Default-row fallback is flagged as lossy (DETECTED_MODEL_DEFAULT), not precise enough to pin as a new override" \
+  "1" "$DETECTED_MODEL_DEFAULT"
+
+# A concrete numbered entry (not Default) must NOT be flagged as the lossy fallback -- confirms
+# DETECTED_MODEL_DEFAULT tracks the extraction PATH taken, not just "some name was found". Reuses
+# SCREEN_MODEL (row 3, Claude-Sonnet-5[1m] selected) from the top of this file.
+STAGE=""
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) printf '%s' "$SCREEN_MODEL" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+detect_override wG:p4
+assert_eq "a concrete numbered entry's own identifier is not flagged as the lossy Default fallback" \
+  "0" "$DETECTED_MODEL_DEFAULT"
 
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

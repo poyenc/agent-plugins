@@ -94,6 +94,39 @@ assert_eq "last occurrence wins across mixed alias spellings too" "-mold1 --mode
 arr=(--model -m --verbose); replace_or_append_flag arr --model new -m
 assert_eq "a value token that looks like an alias spelling is not re-matched as another occurrence" "--model new --verbose" "${arr[*]}"
 
+# remove_flag: the inverse of replace_or_append_flag -- removes EVERY occurrence entirely
+# (flag + its own value token), rather than replacing one. Same accepted spellings, same
+# scanning conventions.
+arr=(--model opus --verbose); remove_flag arr --model
+assert_eq "remove_flag: canonical space form removed entirely" "--verbose" "${arr[*]}"
+arr=(--model=opus --verbose); remove_flag arr --model
+assert_eq "remove_flag: attached '=' form removed entirely" "--verbose" "${arr[*]}"
+arr=(-mgpt-5.6-sol --verbose); remove_flag arr --model -m
+assert_eq "remove_flag: codex's short attached -mVALUE form removed entirely" "--verbose" "${arr[*]}"
+
+# ALL occurrences are removed, not just the last one (unlike replace_or_append_flag, which only
+# ever needs to fix up the one that a real CLI's last-flag-wins parsing would apply) -- a flag
+# being removed entirely should not leave an earlier occurrence behind either.
+arr=(--model sonnet --verbose --model opus); remove_flag arr --model
+assert_eq "remove_flag: every occurrence of a repeated flag is removed" "--verbose" "${arr[*]}"
+arr=(-mold1 --verbose --model old2 -mold3); remove_flag arr --model -m
+assert_eq "remove_flag: every occurrence across mixed alias spellings is removed" "--verbose" "${arr[*]}"
+
+# A flag's own VALUE token must never be re-scanned as if it were another occurrence, even when
+# it happens to look like one of the accepted alias spellings -- the scan must skip past a
+# matched "space"-mode pair's value token, not re-examine it independently.
+arr=(--model -m --verbose); remove_flag arr --model
+assert_eq "remove_flag: a value token that looks like an alias spelling is not re-matched as another occurrence" \
+  "--verbose" "${arr[*]}"
+
+# A flag that's not present at all is a no-op, not an error.
+arr=(--verbose --effort high); remove_flag arr --model
+assert_eq "remove_flag: absent flag is a no-op" "--verbose --effort high" "${arr[*]}"
+
+# Positional data past "--" is never touched, even if it looks like the flag being removed.
+arr=(--model opus -- --model should-survive); remove_flag arr --model
+assert_eq "remove_flag: positional data past -- is never touched" "-- --model should-survive" "${arr[*]}"
+
 arr=(-m glm-5.2 -c model_reasoning_effort=none); replace_or_append_kv arr model_reasoning_effort low
 assert_eq "replace kv" "-m glm-5.2 -c model_reasoning_effort=low" "${arr[*]}"
 arr=(-m glm-5.2); replace_or_append_kv arr model_reasoning_effort high

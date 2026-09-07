@@ -136,6 +136,11 @@ detect_override() {
 
   DETECTED_MODEL=""
   DETECTED_EFFORT=""
+  # Set alongside DETECTED_MODEL below: "1" iff DETECTED_MODEL came from the Default row's own
+  # lossy "currently X" fallback (see the extraction comment further down) rather than a concrete
+  # numbered entry's own specific identifier -- callers must not treat this value as precise
+  # enough to pin as an explicit --model (see resolve_and_prepare's own use of this flag).
+  DETECTED_MODEL_DEFAULT=0
 
   # Defensive pre-close: nothing has been opened by us yet here, so this modal (if any) is
   # pre-existing, not one of ours. A CONFIRMED failure to close it still means the pane's UI
@@ -199,8 +204,19 @@ detect_override() {
     name=$(printf '%s' "$row" | grep -oE 'Claude-[A-Za-z0-9._-]+(\[[A-Za-z0-9._-]+\])?' | head -n1) || true
     # The Default row has no such identifier column of its own -- its description instead reads
     # "Use the default model (currently Opus 5 (1M context))", so fall back to the family name
-    # named there (still generic, since that's all the UI itself ever shows for this row).
-    [ -z "$name" ] && { name=$(printf '%s' "$row" | grep -oE 'currently [A-Za-z]+' | awk '{print $2}') || true; }
+    # named there (still generic, since that's all the UI itself ever shows for this row). This
+    # fallback is LOSSY on purpose (a bare family word, no dated version, no [1m] suffix) -- it is
+    # NEVER precise enough to use as a --model VALUE, whether replacing an existing one or
+    # synthesizing a new one; it exists purely as a DIAGNOSTIC string for note messages. The real
+    # decision lives entirely in DETECTED_MODEL_DEFAULT (set here whenever this fallback fires):
+    # callers (resolve_and_prepare) key off THAT flag, not this string, to decide whether to
+    # preserve "follow whatever Default resolves to" (remove any existing --model entirely,
+    # bare-launch stays bare) rather than ever comparing this lossy value against a captured
+    # baseline or promoting it into an explicit pin.
+    if [ -z "$name" ]; then
+      name=$(printf '%s' "$row" | grep -oE 'currently [A-Za-z]+' | awk '{print $2}') || true
+      DETECTED_MODEL_DEFAULT=1
+    fi
     DETECTED_MODEL=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
 
     # Require "adjust" on the SAME line as the level word so this can only match the modal's

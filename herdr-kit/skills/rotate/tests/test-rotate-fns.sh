@@ -432,16 +432,67 @@ ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
 assert_eq "a genuinely changed detected effort is applied, replacing in place" "--model haiku --effort high" "${BASE_FLAGS[*]}"
 unset -f detect_override
 
-# The original argv had NO --model flag at all (implicit default) -- detection resolving to
-# SOME concrete model must NOT synthesize an explicit --model flag; there's nothing to compare
-# it against, so this is treated as "can't tell, don't touch," not "a change happened."
+# The original argv had NO --model flag at all (implicit default, e.g. a bare `claude` launch --
+# the ordinary case, not an edge case) -- detection resolving to SOME concrete model MUST
+# synthesize an explicit --model flag: there's no baseline to compare it against, so "can't tell"
+# must mean "trust detection," not "silently do nothing" -- otherwise a genuine mid-session model
+# switch (the whole reason detect_override exists) is dropped on every rotation of any
+# bare-launched session, confirmed live as the actual reported bug. Same reasoning already
+# established for pi (which can NEVER capture a baseline at all), applied consistently here.
 MOCK_PROC_NOFLAG=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"claude",argv:["claude","--verbose"]}]}}}')
 herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_NOCHANGE";; "pane process-info") printf '%s' "$MOCK_PROC_NOFLAG";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
 detect_override(){ DETECTED_MODEL="sonnet"; DETECTED_EFFORT=""; }
 OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
 ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
-assert_eq "no original model flag: detection never synthesizes one" "--verbose" "${BASE_FLAGS[*]}"
+assert_eq "no original model flag: detection promotes an override (bare launch, mid-session switch)" \
+  "--verbose --model sonnet" "${BASE_FLAGS[*]}"
 unset -f detect_override
+
+# Same as above, symmetrically, for effort: a bare launch with no --effort flag at all must still
+# have a genuinely detected live effort promoted into an override.
+MOCK_PROC_NOEFFORT=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"claude",argv:["claude","--verbose"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_NOCHANGE";; "pane process-info") printf '%s' "$MOCK_PROC_NOEFFORT";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL=""; DETECTED_EFFORT="high"; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
+assert_eq "no original effort flag: detection promotes an override (bare launch, mid-session switch)" \
+  "--verbose --effort high" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# DETECTED_MODEL_DEFAULT=1 (claude's own signal for "this came from the lossy Default-row
+# fallback, not a concrete identifier" -- see herdr-rotate-claude's detect_override): even with
+# an EXPLICIT baseline present (--model haiku at original launch), a live switch to Default must
+# REMOVE the stale --model entirely, not replay the old "haiku" value and not synthesize the
+# lossy "opus" alias either -- see rotate-common.sh's own comment on why this is checked before
+# the ordinary differs-from-default comparison.
+MOCK_PROC_HAIKU=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"claude",argv:["claude","--model","haiku","--verbose"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_NOCHANGE";; "pane process-info") printf '%s' "$MOCK_PROC_HAIKU";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="opus"; DETECTED_EFFORT=""; DETECTED_MODEL_DEFAULT=1; }
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare claude lead
+assert_eq "explicit baseline + live model switched to Default: stale --model removed, not replayed or replaced" \
+  "--verbose" "${BASE_FLAGS[*]}"
+unset -f detect_override
+
+# Lifecycle: DETECTED_MODEL_DEFAULT must be reset by the SHARED caller before every
+# detect_override call, not left to whichever kind's own detect_override happens to touch it --
+# a stale "1" left over from an EARLIER resolve_and_prepare call in this same process (simulated
+# here by pre-setting it before the call) must NOT suppress a genuine no-baseline promotion for a
+# DIFFERENT kind (codex) whose own detect_override never sets this variable at all.
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=(-m) EFFORT_FLAG=model_reasoning_effort EFFORT_STYLE=kv
+MOCK_AGENTS_CODEX_BARE='{"result":{"agents":[{"agent":"codex","pane_id":"wG:p4","name":"lead"}]}}'
+MOCK_PROC_CODEX_BARE=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"codex",argv:["codex"]}]}}}')
+herdr(){ case "$1 $2" in "agent list") printf '%s' "$MOCK_AGENTS_CODEX_BARE";; "pane process-info") printf '%s' "$MOCK_PROC_CODEX_BARE";; "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
+detect_override(){ DETECTED_MODEL="opus"; DETECTED_EFFORT="high"; }   # codex's own: never touches DETECTED_MODEL_DEFAULT
+DETECTED_MODEL_DEFAULT=1   # simulates pollution left over from an earlier (claude) call
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+ROTATE_SETTLE_POLL_SECS=1 resolve_and_prepare codex lead
+assert_eq "a stale DETECTED_MODEL_DEFAULT from an earlier call does not suppress codex's own no-baseline promotion" \
+  "1" "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx -- '--model')"
+assert_eq "codex bare launch: model AND kv-effort both synthesized with no baseline" \
+  "1" "$(printf '%s\n' "${BASE_FLAGS[@]}" | grep -cx 'model_reasoning_effort=high')"
+unset -f detect_override
+MODEL_FLAG=--model MODEL_FLAG_ALIASES=() EFFORT_FLAG=--effort EFFORT_STYLE=flag
 
 # An EXPLICIT --model/--effort passed to finish always applies, even if it happens to equal the
 # default already present -- it's a direct, deliberate ask, not a detection result, so it is

@@ -110,6 +110,38 @@ replace_or_append_flag() {
   _arr=("${out[@]}")
 }
 
+# The inverse of replace_or_append_flag: removes EVERY occurrence of $flag (any of the given
+# alias spellings), together with each occurrence's own value token, instead of replacing one.
+# Exists for claude's "Default" model entry (see detect_override's own DETECTED_MODEL_DEFAULT
+# comment): Default carries no fixed identifier of its own (only a lossy family alias), so the
+# only way to correctly preserve "follow whatever Default resolves to" on relaunch is a BARE
+# argv with no --model at all -- neither replaying a stale explicit value nor synthesizing a new,
+# lossy one is correct there. Same matching conventions as replace_or_append_flag (space form,
+# attached "=", short-form attached value, stops at a literal "--"), same nameref/single-use
+# reasoning. Removes ALL occurrences, not just the last one: unlike a value that's meant to be
+# replaced in place, a flag being entirely removed should not leave an earlier stale duplicate
+# behind either.
+remove_flag() {
+  local -n _flags_arr="$1"; local target_flag="$2"; shift 2
+  local -a aliases=("$target_flag" "$@")
+  local n=${#_flags_arr[@]} j a skip
+  local -a out=()
+  j=0
+  while [ "$j" -lt "$n" ]; do
+    if [ "${_flags_arr[$j]}" = "--" ]; then out+=("${_flags_arr[@]:$j}"); break; fi
+    skip=0
+    for a in "${aliases[@]}"; do
+      if [ "${_flags_arr[$j]}" = "$a" ]; then skip=2; break
+      elif [[ "${_flags_arr[$j]}" == "$a="* ]]; then skip=1; break
+      elif [ "${#a}" -eq 2 ] && [[ "$a" == -[^-]* ]] && [[ "${_flags_arr[$j]}" == "$a"?* ]]; then
+        skip=1; break
+      fi
+    done
+    if [ "$skip" -eq 0 ]; then out+=("${_flags_arr[$j]}"); j=$((j+1)); else j=$((j+skip)); fi
+  done
+  _flags_arr=("${out[@]}")
+}
+
 # Same last-occurrence-only, replace-in-place behavior as replace_or_append_flag, for codex's
 # "-c key=value" kv encoding. -c/--config are two spellings of the SAME flag (confirmed via
 # `codex --help`: "-c, --config <key=value>" documented as one entry), so this recognizes all
@@ -695,6 +727,14 @@ resolve_and_prepare() {
   case "$target_status" in idle|done) target_idle=1 ;; esac
   if { [ -z "$OVERRIDE_MODEL" ] || [ -z "$OVERRIDE_EFFORT" ]; } && declare -F detect_override >/dev/null 2>&1; then
     if [ "$target_idle" = 1 ]; then
+      # Reset here, in the SHARED caller, rather than trust every per-kind detect_override to do
+      # it -- only claude's own implementation ever sets this (see its own comment), so a stale
+      # "1" left over from an EARLIER call in this same process (this matters for anything that
+      # calls resolve_and_prepare more than once per process, e.g. a test suite running many
+      # cases sequentially) would otherwise silently suppress a genuine no-baseline promotion for
+      # whatever kind is being rotated THIS time, including one (codex/pi) whose own
+      # detect_override never touches this variable at all.
+      DETECTED_MODEL_DEFAULT=0
       detect_override "$ROTATE_PANE"
       if [ "$ROTATE_KIND" = pi ]; then
         # pi's captured argv is ALWAYS empty (process.title rewrite -- see capture_argv's own
@@ -707,33 +747,78 @@ resolve_and_prepare() {
         [ -z "$OVERRIDE_MODEL" ] && [ -n "$DETECTED_MODEL" ] && OVERRIDE_MODEL="$DETECTED_MODEL" && note "detected live model: $DETECTED_MODEL"
         [ -z "$OVERRIDE_EFFORT" ] && [ -n "$DETECTED_EFFORT" ] && OVERRIDE_EFFORT="$DETECTED_EFFORT" && note "detected live effort: $DETECTED_EFFORT"
       else
-        # A detected value only becomes an override if it DIFFERS from what launch already had --
-        # an explicit --model/--effort on finish always applies regardless (handled above; this
-        # block only ever fires when OVERRIDE_MODEL/OVERRIDE_EFFORT is still empty). Requiring a
-        # non-empty default too means detection alone can never synthesize a flag where none
-        # existed -- there's nothing to compare an implicit default against, so that case is
-        # "can't tell, don't touch," not "a change happened."
-        # Exact match only, for every kind including claude -- no substring/containment
-        # tolerance. An earlier version of this check treated a short alias ("sonnet") as
-        # equivalent to a full identifier containing it ("claude-sonnet-5"), reasoning both are
-        # valid --model spellings for claude (confirmed via `claude --help`) -- but ANY
-        # containment check, in either direction, also silently equates two genuinely DIFFERENT
-        # specific identifiers whenever one happens to be a substring/prefix of the other (e.g.
-        # "claude-sonnet-4-5" vs "claude-sonnet-5", or "claude-opus-4" vs "claude-opus-4-1") --
-        # there is no way to tell "same model, different spelling" apart from "different model,
-        # coincidentally overlapping name" using string containment alone. A false "unchanged"
-        # here silently drops a genuine user model change; a false "changed" only costs an
-        # unnecessary (but still correct) flag rewrite -- given that asymmetry, exact match is
-        # the safer default even though it means a launch using a bare alias will no longer be
-        # recognized as "unchanged" against a live session now showing detect_override's more
-        # specific identifier for that same model.
-        if [ -z "$OVERRIDE_MODEL" ] && [ -n "$DETECTED_MODEL" ] && [ -n "$default_model" ] && [ "$DETECTED_MODEL" != "$default_model" ]; then
-          OVERRIDE_MODEL="$DETECTED_MODEL"
-          note "detected live model changed from launch ('$default_model' -> '$DETECTED_MODEL')"
+        # A detected value becomes an override if it DIFFERS from what launch already had, OR if
+        # launch had NOTHING explicit to compare it against in the first place (a bare launch,
+        # e.g. plain `claude`/`codex` with no --model/--effort at all, inheriting whatever the
+        # account default happened to be at that moment -- the common case, not a rare one). An
+        # explicit --model/--effort passed to finish always applies regardless (handled above;
+        # this block only ever fires when OVERRIDE_MODEL/OVERRIDE_EFFORT is still empty).
+        #
+        # An earlier revision required default_model/default_effort to be non-empty before ever
+        # promoting a detected value ("nothing to compare an implicit default against, so this is
+        # 'can't tell, don't touch,' not 'a change happened'") -- confirmed live that this makes
+        # detect_override's ENTIRE reason for existing (carrying a mid-session /model switch into
+        # the rotation) silently inert for any bare-launched session, which is the ordinary case,
+        # not an edge case: default_model is empty there by construction, so "differs from an
+        # empty baseline" was never true, and a real live switch (e.g. sonnet -> opus mid-run) was
+        # dropped on every single rotation, replaying the original bare launch instead. This is
+        # exactly pi's OWN already-established reasoning just above for its identical "no baseline
+        # available" situation (pi's argv can never be captured at all) -- reached here via a
+        # launch that happened to omit the flag, rather than a kind that can never report one, but
+        # the right response is the same: trust detection rather than silently do nothing.
+        # Exact match only when a baseline DOES exist, for every kind including claude -- no
+        # substring/containment tolerance. An earlier version of this check treated a short alias
+        # ("sonnet") as equivalent to a full identifier containing it ("claude-sonnet-5"),
+        # reasoning both are valid --model spellings for claude (confirmed via `claude --help`) --
+        # but ANY containment check, in either direction, also silently equates two genuinely
+        # DIFFERENT specific identifiers whenever one happens to be a substring/prefix of the
+        # other (e.g. "claude-sonnet-4-5" vs "claude-sonnet-5", or "claude-opus-4" vs
+        # "claude-opus-4-1") -- there is no way to tell "same model, different spelling" apart
+        # from "different model, coincidentally overlapping name" using string containment alone.
+        # A false "unchanged" here silently drops a genuine user model change; a false "changed"
+        # only costs an unnecessary (but still correct) flag rewrite -- given that asymmetry,
+        # exact match is the safer default even though it means a launch using a bare alias will
+        # no longer be recognized as "unchanged" against a live session now showing
+        # detect_override's more specific identifier for that same model.
+        # DETECTED_MODEL_DEFAULT (claude only; reset to 0 by the shared caller above before every
+        # detect_override call, so a stale "1" from an earlier rotation in this same process can
+        # never leak into a kind whose own detect_override never touches it): "1" means
+        # DETECTED_MODEL came from claude's Default-row fallback (a bare, lossy family alias like
+        # "opus", never a concrete dated/[1m] identifier -- see that fallback's own comment in
+        # herdr-rotate-claude). Checked FIRST, before comparing against default_model at all:
+        # Default carries no fixed identifier of its own, so the only way to correctly preserve
+        # "follow whatever Default resolves to" on relaunch is a BARE argv with no --model flag,
+        # regardless of whether the ORIGINAL launch happened to have an explicit one. Neither
+        # replaying that stale explicit value (the original reported bug: an old pinned model
+        # silently outlives a live switch back to Default) nor synthesizing a new, lossy
+        # "--model <family alias>" (loses precision AND permanently pins away from Default going
+        # forward) is correct here -- the flag must be removed entirely, not rewritten.
+        if [ -z "$OVERRIDE_MODEL" ] && [ -n "$DETECTED_MODEL" ] && [ "${DETECTED_MODEL_DEFAULT:-0}" = 1 ]; then
+          if [ -n "$default_model" ]; then
+            remove_flag BASE_FLAGS "$MODEL_FLAG" "${MODEL_FLAG_ALIASES[@]}"
+            note "live model resolves via claude's own 'Default' entry -- removing the stale explicit '$MODEL_FLAG $default_model' so relaunch follows Default like the live session does"
+          else
+            note "live model resolves via claude's own 'Default' entry (currently '$DETECTED_MODEL', a lossy family alias) and launch had no explicit --model -- nothing to change; a bare relaunch already follows the same Default resolution"
+          fi
+        elif [ -z "$OVERRIDE_MODEL" ] && [ -n "$DETECTED_MODEL" ]; then
+          if [ -n "$default_model" ]; then
+            if [ "$DETECTED_MODEL" != "$default_model" ]; then
+              OVERRIDE_MODEL="$DETECTED_MODEL"
+              note "detected live model changed from launch ('$default_model' -> '$DETECTED_MODEL')"
+            fi
+          else
+            OVERRIDE_MODEL="$DETECTED_MODEL"
+            note "detected live model (launch had no explicit --model to compare against): '$DETECTED_MODEL'"
+          fi
         fi
-        if [ -z "$OVERRIDE_EFFORT" ] && [ -n "$DETECTED_EFFORT" ] && [ -n "$default_effort" ] && [ "$DETECTED_EFFORT" != "$default_effort" ]; then
+        if [ -z "$OVERRIDE_EFFORT" ] && [ -n "$DETECTED_EFFORT" ] \
+           && { [ -z "$default_effort" ] || [ "$DETECTED_EFFORT" != "$default_effort" ]; }; then
           OVERRIDE_EFFORT="$DETECTED_EFFORT"
-          note "detected live effort changed from launch ('$default_effort' -> '$DETECTED_EFFORT')"
+          if [ -n "$default_effort" ]; then
+            note "detected live effort changed from launch ('$default_effort' -> '$DETECTED_EFFORT')"
+          else
+            note "detected live effort (launch had no explicit --effort to compare against): '$DETECTED_EFFORT'"
+          fi
         fi
       fi
     else
