@@ -126,6 +126,57 @@ herdr(){
 ROTATE_EXIT_POLL_SECS=6
 assert_eq "exit succeeds when gone" "0" "$(rc exit_agent wG:p4)"
 
+# exit_agent: an optional per-kind handle_exit_prompt hook (e.g. claude's own confirmation menu
+# for a still-running background task) is polled every round, not just tried once after the whole
+# loop already gave up -- proven here by a target that never goes gone on its own (agent get
+# always reports "working") until the hook itself clears the blocking condition.
+CNT2=$(mktemp); echo 0 > "$CNT2"
+herdr(){
+  case "$1 $2" in
+    "agent prompt") echo '{"result":{}}' ;;
+    "agent get")
+      if [ "$(cat "$CNT2")" -ge 1 ]; then echo '{"error":{"code":"agent_not_found"}}' >&2; return 1; fi
+      echo '{"result":{"agent":{"agent_status":"working"}}}' ;;
+    "pane read") printf 'user@host:~$ \n' ;;
+    *) echo "{}" ;;
+  esac
+}
+handle_exit_prompt() { echo 1 > "$CNT2"; }
+ROTATE_EXIT_POLL_SECS=6
+assert_eq "exit_agent's handle_exit_prompt hook is invoked and can clear the block" "0" "$(rc exit_agent wG:p4)"
+unset -f handle_exit_prompt
+rm -f "$CNT2"
+
+# ...and without any such hook declared (the pre-existing per-kind scripts that don't define one),
+# exit_agent's behavior is unchanged: it still just polls gone() and eventually dies on timeout.
+herdr(){
+  case "$1 $2" in
+    "agent prompt") echo '{"result":{}}' ;;
+    "agent get")    echo '{"result":{"agent":{"agent_status":"working"}}}' ;;
+    "pane read")    printf 'user@host:~$ \n' ;;
+    *) echo "{}" ;;
+  esac
+}
+ROTATE_EXIT_POLL_SECS=2
+( exit_agent wG:p4 >/dev/null 2>&1 ); assert_eq "exit_agent still dies on timeout without a handle_exit_prompt hook" "1" "$?"
+
+# exit_agent: a final gone() re-check after the poll loop -- covers the pane already being free
+# right at the deadline boundary (e.g. handle_exit_prompt frees it on the loop's very last round),
+# which the loop's own deadline-first `while` condition can otherwise skip re-observing before
+# falling through to exit_fallback/die. ROTATE_EXIT_POLL_SECS=0 makes the loop body run zero
+# times (deadline == SECONDS already), isolating this specific post-loop check: gone() is true
+# from the very first call, but the loop itself never gets a chance to observe it.
+herdr(){
+  case "$1 $2" in
+    "agent prompt") echo '{"result":{}}' ;;
+    "agent get")    echo '{"error":{"code":"agent_not_found"}}' >&2; return 1 ;;
+    "pane read")    printf 'user@host:~$ \n' ;;
+    *) echo "{}" ;;
+  esac
+}
+ROTATE_EXIT_POLL_SECS=0
+assert_eq "exit_agent re-checks gone once more after a zero-iteration poll loop" "0" "$(rc exit_agent wG:p4)"
+
 # wait_settled: succeeds once idle/done is observed; dies (does not silently proceed) if the
 # target never settles, since the next step is destructive.
 herdr(){ case "$1 $2" in "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }

@@ -75,6 +75,46 @@ close_modal() {
   return 1
 }
 
+# Claude's own /quit, when a background task (e.g. a Bash tool call run with
+# run_in_background=true) is still running at the time it's sent, opens a confirmation menu
+# instead of exiting immediately -- "Background work is running ... 1. Exit and stop tasks /
+# 2. Move to background and exit / 3. Stay", with option 1 already pre-selected (❯). Reproduced
+# live against a real v2.1.237 session: exit_agent's own poll loop otherwise waits out its full
+# timeout and dies, since gone() never becomes true while this menu is on screen, and claude has
+# no exit_fallback (unlike pi's double ctrl-d) to fall back on. Option 1 is the right choice for a
+# rotation anyway (a fresh relaunched session should not inherit an orphaned background process),
+# and it's already the default, so a bare Enter is enough -- no menu navigation needed.
+#
+# The footer alone ("Enter to confirm · Esc to cancel") is NOT enough to act on: it's a generic
+# confirm/cancel footer that some other, unrelated confirmation dialog could plausibly share, and
+# sending a bare Enter there would confirm whatever THAT dialog's own pre-selected action is, not
+# this one -- so this also requires the quit-confirmation's own heading ("Background work is
+# running") to be present, AND its own row for option 1 to be the one currently marked as selected
+# (❯) -- i.e. that Enter would actually choose "Exit and stop tasks" specifically, not "Move to
+# background and exit" or "Stay" (this control flow never sends arrow keys, so the selection
+# should never actually move off option 1, but this is still checked rather than assumed). All
+# three signals scoped to the SAME read: the footer on the exact bottommost non-blank line (same
+# reasoning as CLAUDE_MODAL_MARKER above -- rules out an unrelated mention anywhere else in
+# scrollback), the heading and row anywhere in that same bounded window (their own text is
+# specific enough on its own that a position check on top of the footer's own scoping would be
+# redundant). If any signal is missing -- e.g. this is some other dialog, or the selection somehow
+# moved -- nothing is sent and exit_agent's poll loop simply tries again next round, eventually
+# dying loudly on timeout rather than guessing at an unconfirmed state.
+CLAUDE_QUIT_CONFIRM_FOOTER='Enter to confirm · Esc to cancel'
+CLAUDE_QUIT_CONFIRM_HEADING='Background work is running'
+CLAUDE_QUIT_CONFIRM_ROW='❯ 1. Exit and stop tasks'
+handle_exit_prompt() {
+  local pane="$1" out last
+  out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null) || return 0
+  last=$(last_nonblank_line "$out")
+  [ -n "$last" ] || return 0
+  printf '%s' "$last" | grep -qF "$CLAUDE_QUIT_CONFIRM_FOOTER" || return 0
+  printf '%s' "$out" | grep -qF "$CLAUDE_QUIT_CONFIRM_HEADING" || return 0
+  printf '%s' "$out" | grep -qF "$CLAUDE_QUIT_CONFIRM_ROW" || return 0
+  herdr agent send-keys "$pane" enter >/dev/null 2>&1
+  return 0
+}
+
 # Reads the LIVE model AND effort straight from Claude Code's own /model command output (never
 # header/footer/statusline, which reflow) and cancels with Esc, leaving nothing changed. Sets
 # DETECTED_MODEL/DETECTED_EFFORT (empty if undetectable). A defensive close_modal runs BEFORE the

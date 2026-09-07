@@ -329,8 +329,20 @@ exit_agent() {
   local deadline=$(( SECONDS + ${ROTATE_EXIT_POLL_SECS:-25} ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     if gone "$pane"; then note "agent exited; pane $pane free"; return 0; fi
+    # Optional per-kind hook (declared by the per-kind script, e.g. claude's own confirmation
+    # menu for a still-running background task) to answer a prompt that's blocking /quit from
+    # actually taking effect -- called every round so it can react as soon as such a prompt
+    # appears, not just once after this poll loop already gave up.
+    declare -F handle_exit_prompt >/dev/null 2>&1 && handle_exit_prompt "$pane"
     command sleep 1
   done
+  # handle_exit_prompt (or gone() itself) may have freed the pane on this loop's very last round,
+  # after which the deadline-first `while` condition above exits without ever re-observing that --
+  # re-check once more here before falling through to a kind fallback or die, so a pane that's
+  # actually already free is never mistaken for one that still needs exit_fallback's alternate
+  # exit mechanism (which could otherwise send its own exit keystrokes into an already-empty
+  # shell).
+  if gone "$pane"; then note "agent exited; pane $pane free"; return 0; fi
   if declare -F exit_fallback >/dev/null 2>&1; then
     note "/quit did not settle; trying kind fallback"
     exit_fallback "$pane" && return 0

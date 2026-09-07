@@ -11,7 +11,7 @@ setup(){ # $1=kind $2=name  -> exports fresh state + PATH
   export MOCK_KIND="$1" MOCK_PANE="wG:p4" MOCK_NAME="$2"
   unset MOCK_VERIFY_ARGV MOCK_COLLISION_NAME MOCK_COLLISION_PANE MOCK_FAIL_KICKOFF \
         MOCK_PANE_CHANGE_AFTER MOCK_PANE_2 MOCK_SESSION MOCK_SESSION_2 MOCK_SESSION_CHANGE_AFTER \
-        MOCK_CLAUDE_MODAL_STUCK MOCK_PI_MODAL_STUCK
+        MOCK_CLAUDE_MODAL_STUCK MOCK_PI_MODAL_STUCK MOCK_CLAUDE_QUIT_CONFIRM
   printf -- '--model\nopus\n--verbose\n' > "$MOCK_STATE/argv"   # original launch flags
   export PATH="$HERE/mock:$PATH"
   export ROTATE_EXIT_POLL_SECS=5 ROTATE_VERIFY_POLL_SECS=5 ROTATE_DETECT_POLL_SECS=1
@@ -301,6 +301,19 @@ run "$S/herdr-rotate-pi" finish worker "$HANDOFF_PATH" >/dev/null 2>&1
 assert_eq "pi stuck modal aborts finish non-zero" "1" "$?"
 assert_eq "pi stuck modal finish never reaches /quit" "0" "$(grep -c '/quit' "$MOCK_CALLS")"
 unset MOCK_PI_MODAL_STUCK
+
+# 5h. claude's own /quit, when a background task is still running, opens a confirmation menu
+# instead of exiting immediately (reproduced live against a real v2.1.237 session -- see
+# herdr-rotate-claude's own handle_exit_prompt/CLAUDE_QUIT_CONFIRM_FOOTER comment). Without
+# handle_exit_prompt answering it, exit_agent's gone() poll would never succeed and finish would
+# die on timeout instead of completing.
+setup claude lead
+export MOCK_CLAUDE_QUIT_CONFIRM=1
+run "$S/herdr-rotate-claude" handoff lead >/dev/null 2>&1
+run "$S/herdr-rotate-claude" finish lead "$HANDOFF_PATH" >/dev/null 2>&1
+assert_eq "finish completes despite claude's quit-confirmation menu" "0" "$?"
+assert_eq "the confirmation menu was answered with Enter" "1" "$(grep -c 'agent send-keys.*enter' "$MOCK_CALLS")"
+unset MOCK_CLAUDE_QUIT_CONFIRM
 
 # 6. dispatcher routes by kind + forwards (kind=pi) and succeeds across both phases
 setup pi worker

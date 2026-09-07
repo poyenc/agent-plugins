@@ -112,8 +112,11 @@ need to name it yourself.
 3. `finish`: re-resolve (checking the session tag) + wait-settled (dies if it never settles —
    the next step is destructive) + re-capture + re-apply overrides (same result as step 1,
    since nothing about the target has changed); re-checks the session tag one more time right
-   before the destructive step (closes the window between the first check and now); `/quit`;
-   confirm the pane is free (`agent_not_found` + shell prompt); `herdr agent start` same
+   before the destructive step (closes the window between the first check and now); `/quit`
+   (**claude**: if a background task is still running, `/quit` opens a confirmation menu
+   instead of exiting immediately — this is detected and confirmed automatically, choosing
+   "Exit and stop tasks", the menu's own pre-selected default); confirm the pane is free
+   (`agent_not_found` + shell prompt); `herdr agent start` same
    name+pane, replaying argv; poll the new agent to idle, verify — **kickoff is withheld if
    verification fails**, so a mis-launched agent is never told to start working. Verification
    is argv element-by-element for claude/codex. **pi is different**: pi overwrites its own

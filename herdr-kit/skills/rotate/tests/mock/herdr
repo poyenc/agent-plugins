@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stateful mock herdr for flow tests. Config via env:
 #   MOCK_CALLS, MOCK_STATE (dir), MOCK_KIND, MOCK_PANE, MOCK_NAME,
-#   MOCK_VERIFY_ARGV (file; used for argv after start).
+#   MOCK_VERIFY_ARGV (file; used for argv after start), MOCK_CLAUDE_QUIT_CONFIRM.
 set -uo pipefail
 printf '%s\n' "${*//$'\n'/\\n}" >> "$MOCK_CALLS"   # collapse embedded newlines: one call = one log line
 gone(){ cat "$MOCK_STATE/gone" 2>/dev/null || echo 0; }
@@ -38,7 +38,16 @@ case "$1 $2" in
       '{result:{process_info:{foreground_processes:[{name:$k,argv:([$k]+$ARGS.positional)}]}}}' -- "${A[@]}" ;;
   "agent prompt")
     p="$4"
-    if [ "$p" = "/quit" ]; then echo 1 > "$MOCK_STATE/gone"; fi
+    if [ "$p" = "/quit" ]; then
+      # MOCK_CLAUDE_QUIT_CONFIRM: simulates claude's own confirmation menu for a still-running
+      # background task -- /quit does NOT free the pane immediately; it opens a menu instead
+      # (see "pane read" below), only actually exiting once "enter" is sent while it's open.
+      if [ "$MOCK_KIND" = claude ] && [ "${MOCK_CLAUDE_QUIT_CONFIRM:-0}" = 1 ]; then
+        echo 1 > "$MOCK_STATE/quit_confirm_open"
+      else
+        echo 1 > "$MOCK_STATE/gone"
+      fi
+    fi
     case "$p" in /settings|/model) echo 1 > "$MOCK_STATE/pi_modal_open" ;; esac
     case "$p" in *"Continue the work described"*)
       [ "${MOCK_FAIL_KICKOFF:-0}" = 1 ] && { echo '{"error":{"code":"agent_prompt_stalled"}}' >&2; exit 1; } ;;
@@ -81,6 +90,10 @@ case "$1 $2" in
       # (the "Esc to cancel" footer shared by /status, /model, /effort) stays visible no matter
       # how many Escapes are sent.
       printf 'Esc to cancel\n'
+    elif [ "$MOCK_KIND" = claude ] && [ "$(cat "$MOCK_STATE/quit_confirm_open" 2>/dev/null || echo 0)" = 1 ]; then
+      # Verbatim (trimmed) footer of claude's own quit-with-background-task confirmation menu --
+      # see MOCK_CLAUDE_QUIT_CONFIRM above and herdr-rotate-claude's own handle_exit_prompt.
+      printf '  Background work is running\n\n  \xe2\x9d\xaf 1. Exit and stop tasks\n\n  Enter to confirm \xc2\xb7 Esc to cancel\n'
     else
       printf 'agent ui drawing\n'
     fi ;;
@@ -91,6 +104,11 @@ case "$1 $2" in
     echo '{"result":{"agent":{}}}' ;;
   "agent send-keys")
     case " $* " in *' ctrl+d '*) echo 1 > "$MOCK_STATE/gone" ;; esac  # pi's exit fallback
+    # An "enter" while claude's quit-confirmation menu is open confirms its pre-selected option
+    # ("Exit and stop tasks") and actually frees the pane -- see handle_exit_prompt.
+    if [ "$(cat "$MOCK_STATE/quit_confirm_open" 2>/dev/null || echo 0)" = 1 ]; then
+      case " $* " in *' enter '*) echo 1 > "$MOCK_STATE/gone"; echo 0 > "$MOCK_STATE/quit_confirm_open" ;; esac
+    fi
     # MOCK_PI_MODAL_STUCK: Esc never actually closes the picker, simulating a modal that never
     # confirms closed (close_modal's poll keeps seeing the marker until it times out).
     if [ "${MOCK_PI_MODAL_STUCK:-0}" != 1 ]; then
