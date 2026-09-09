@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Stateful mock herdr for flow tests. Config via env:
 #   MOCK_CALLS, MOCK_STATE (dir), MOCK_KIND, MOCK_PANE, MOCK_NAME,
-#   MOCK_VERIFY_ARGV (file; used for argv after start), MOCK_CLAUDE_QUIT_CONFIRM,
-#   MOCK_ALIAS_INJECT_FLAG/MOCK_ALIAS_MAX_OCCURRENCES.
+#   MOCK_VERIFY_ARGV (file; used for argv after start), MOCK_CLAUDE_QUIT_CONFIRM, MOCK_NEVER_EXIT.
 set -uo pipefail
 printf '%s\n' "${*//$'\n'/\\n}" >> "$MOCK_CALLS"   # collapse embedded newlines: one call = one log line
 gone(){ cat "$MOCK_STATE/gone" 2>/dev/null || echo 0; }
@@ -40,10 +39,15 @@ case "$1 $2" in
   "agent prompt")
     p="$4"
     if [ "$p" = "/quit" ]; then
+      # MOCK_NEVER_EXIT: simulates an agent that never settles enough for exit_agent's poll to
+      # observe it gone within the deadline (e.g. it keeps getting nudged by other messages) --
+      # /quit is swallowed with no effect at all, so exit_agent must eventually time out and die.
+      if [ "${MOCK_NEVER_EXIT:-0}" = 1 ]; then
+        :
       # MOCK_CLAUDE_QUIT_CONFIRM: simulates claude's own confirmation menu for a still-running
       # background task -- /quit does NOT free the pane immediately; it opens a menu instead
       # (see "pane read" below), only actually exiting once "enter" is sent while it's open.
-      if [ "$MOCK_KIND" = claude ] && [ "${MOCK_CLAUDE_QUIT_CONFIRM:-0}" = 1 ]; then
+      elif [ "$MOCK_KIND" = claude ] && [ "${MOCK_CLAUDE_QUIT_CONFIRM:-0}" = 1 ]; then
         echo 1 > "$MOCK_STATE/quit_confirm_open"
       else
         echo 1 > "$MOCK_STATE/gone"
@@ -101,21 +105,6 @@ case "$1 $2" in
   "agent start")
     shift; while [ $# -gt 0 ] && [ "$1" != "--" ]; do shift; done; [ "${1:-}" = "--" ] && shift
     launch_args=("$@")
-    # MOCK_ALIAS_INJECT_FLAG/MOCK_ALIAS_MAX_OCCURRENCES: simulates an operator's own shell alias
-    # (e.g. `alias codex='codex --dangerously-bypass-approvals-and-sandbox'`) re-expanding at the
-    # exact moment `herdr agent start` types the relaunch command into that aliased shell -- one
-    # more copy of the flag is prepended here regardless of what we were asked to launch with. If
-    # the total occurrence count then exceeds what the (simulated) CLI tolerates, relaunch fails,
-    # matching codex's own clap parser hard-erroring on a repeat ("cannot be used multiple times",
-    # reproduced live) -- unlike claude, which tolerates a repeat and never fails this way.
-    if [ -n "${MOCK_ALIAS_INJECT_FLAG:-}" ]; then
-      launch_args=("$MOCK_ALIAS_INJECT_FLAG" "${launch_args[@]}")
-      count=0; for a in "${launch_args[@]}"; do [ "$a" = "$MOCK_ALIAS_INJECT_FLAG" ] && count=$((count+1)); done
-      if [ -n "${MOCK_ALIAS_MAX_OCCURRENCES:-}" ] && [ "$count" -gt "$MOCK_ALIAS_MAX_OCCURRENCES" ]; then
-        echo '{"error":{"code":"invalid_argument"}}' >&2
-        exit 1
-      fi
-    fi
     : > "$MOCK_STATE/argv"; for a in "${launch_args[@]}"; do printf '%s\n' "$a" >> "$MOCK_STATE/argv"; done
     echo 1 > "$MOCK_STATE/started"; echo 0 > "$MOCK_STATE/gone"
     echo '{"result":{"agent":{}}}' ;;

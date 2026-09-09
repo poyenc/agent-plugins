@@ -202,105 +202,6 @@ capture_argv() {
     .result.process_info.foreground_processes[] | select(.name==$k) | .argv[] | . + "\u0000"')
   [ "${#raw[@]}" -gt 0 ] || die "no $kind process on pane $pane"
   mapfile -d '' -t BASE_FLAGS < <(strip_context_flags "$kind" "${raw[@]:1}")
-  dedupe_idempotent_flags
-  drop_configured_flags "$kind"
-}
-
-# Drops repeat occurrences of a flag on this kind's own IDEMPOTENT_FLAGS list (optional, set by
-# per-kind script -- empty/unset means no-op, same convention as MODEL_FLAG_ALIASES above). Exists
-# because an operator's own shell alias for this kind's binary (e.g. `alias claude='claude
-# --dangerously-skip-permissions --verbose'` in ~/.bashrc, confirmed live, likewise for codex)
-# re-expands ahead of the same flags on every relaunch: capture_argv reads back the ALREADY
-# alias-expanded argv and replays it, so each rotation compounds one more copy, unbounded.
-#
-# Deliberately an ALLOWLIST of exact tokens, not shape-based cycle detection -- an earlier
-# shape-inferring version was rejected in review (see test-rotate-pure.sh's counterexamples: it
-# collapsed a legitimately-repeated flag+value, and separately corrupted a repeat unit that had
-# its own internal repetition). Restricting matches to flags EXPLICITLY declared boolean/
-# idempotent for this kind (confirmed via the CLI's own --help) means only an already-declared-safe
-# token can ever be dropped -- an unlisted flag is never touched, no matter how it repeats.
-#
-# Operates directly on the global BASE_FLAGS, not a nameref parameter: this is single-use
-# (capture_argv is its only caller), and a nameref here is a real footgun -- a same-named local
-# declared inside the function (e.g. a generic loop variable) would shadow the caller's array
-# instead of the intended target. Naming BASE_FLAGS directly removes that whole class of bug.
-dedupe_idempotent_flags() {
-  local -A seen=()
-  local -a out=()
-  local n=${#BASE_FLAGS[@]} idx tok is_idempotent flag
-  for (( idx=0; idx<n; idx++ )); do
-    tok="${BASE_FLAGS[$idx]}"
-    # Past "--", nothing is a flag any more (see strip_context_flags) -- copy the rest through
-    # verbatim rather than risk matching positional data on the far side. Uses the ORIGINAL
-    # index, not out's own length: a prior dedup skip means out is already shorter than idx, so
-    # slicing from "${#out[@]}" here would silently re-include (and duplicate) already-emitted
-    # tokens.
-    if [ "$tok" = "--" ]; then
-      out+=("${BASE_FLAGS[@]:$idx}")
-      break
-    fi
-    is_idempotent=0
-    for flag in "${IDEMPOTENT_FLAGS[@]}"; do [ "$tok" = "$flag" ] && { is_idempotent=1; break; }; done
-    if [ "$is_idempotent" = 1 ]; then
-      [ -n "${seen[$tok]:-}" ] && continue
-      seen[$tok]=1
-    fi
-    out+=("$tok")
-  done
-  BASE_FLAGS=("${out[@]}")
-}
-
-# ROTATE_DROP_FLAGS_<KIND> (e.g. ROTATE_DROP_FLAGS_CLAUDE, ROTATE_DROP_FLAGS_CODEX): optional,
-# USER-set (space-separated; never set by a per-kind script -- this is a fact about THIS
-# machine/user's own shell setup, not something the checked-in scripts can know) list of flags to
-# drop ENTIRELY from the replayed argv, rather than collapse to one occurrence like
-# dedupe_idempotent_flags above. Exists for what that function can't reach: `herdr agent start`
-# types the relaunch command into the SAME aliased shell that produced the original captured argv,
-# so even a single deduped occurrence becomes two the instant the alias re-expands -- tolerable for
-# a CLI that doesn't mind a repeat (claude, confirmed live), but fatal for one that hard-errors on
-# any repeat at all (codex's clap parser rejects a repeated --dangerously-bypass-approvals-and-
-# sandbox outright, confirmed live: "cannot be used multiple times"). Dropping the flag here and
-# trusting the SAME alias to supply it again at relaunch is safe specifically because it's the
-# identical alias, on the identical machine/user, that put it in the captured argv in the first
-# place -- the net set of flags actually reaching the binary is unchanged either way.
-#
-# KIND-QUALIFIED, not one variable shared across kinds -- IDEMPOTENT_FLAGS tokens overlap between
-# kinds (e.g. both claude's and pi's list --verbose) purely coincidentally, with no relationship to
-# each other's aliases. A single shared list would drop a kind B's occurrence of a token that's
-# only really safe to drop for kind A (whose alias actually supplies it again) -- confirmed: pi has
-# no alias of its own restoring --verbose, so a shared list configured for claude's alias would
-# silently and permanently delete pi's --verbose from every pi rotation, with nothing ever
-# replacing it. Reading the kind-specific variable name via bash's own indirect expansion
-# (`${!varname}`) means an unset kind's variable is simply empty (safe under `set -u`; confirmed:
-# `${!varname:-}` never errors on an unset target), not a shared fallback.
-#
-# Only ever drops a token that's ALSO on THIS kind's own IDEMPOTENT_FLAGS allowlist -- listing an
-# unrelated or value-bearing flag (e.g. --model) here does nothing, rather than silently
-# corrupting the replayed argv; this mirrors dedupe_idempotent_flags's own reasoning for why an
-# allowlist beats shape-inference. Same shared BASE_FLAGS convention as dedupe_idempotent_flags:
-# single-use, direct global, no nameref footgun.
-drop_configured_flags() {
-  local kind="$1"
-  local varname="ROTATE_DROP_FLAGS_$(printf '%s' "$kind" | tr '[:lower:]' '[:upper:]')"
-  local flags_str="${!varname:-}"
-  [ -n "$flags_str" ] || return 0
-  local -a drop; read -r -a drop <<<"$flags_str"
-  local -a out=()
-  local n=${#BASE_FLAGS[@]} idx tok is_idempotent is_dropped flag d
-  for (( idx=0; idx<n; idx++ )); do
-    tok="${BASE_FLAGS[$idx]}"
-    if [ "$tok" = "--" ]; then
-      out+=("${BASE_FLAGS[@]:$idx}")
-      break
-    fi
-    is_idempotent=0
-    for flag in "${IDEMPOTENT_FLAGS[@]}"; do [ "$tok" = "$flag" ] && { is_idempotent=1; break; }; done
-    is_dropped=0
-    for d in "${drop[@]}"; do [ "$tok" = "$d" ] && { is_dropped=1; break; }; done
-    [ "$is_idempotent" = 1 ] && [ "$is_dropped" = 1 ] && continue
-    out+=("$tok")
-  done
-  BASE_FLAGS=("${out[@]}")
 }
 
 # Only a "kind":"id" agent_session (currently claude) is a real per-session identifier; pi's is
@@ -402,11 +303,19 @@ send_handoff() {
 
 # rc 0 iff the agent is confirmed gone AND the pane is back at a shell prompt.
 gone() {
-  local pane="$1" out
+  local pane="$1" out read_out
   out=$(herdr agent get "$pane" 2>&1) || true
   if printf '%s' "$out" | jq -e '.result.agent' >/dev/null 2>&1; then return 1; fi
   printf '%s' "$out" | jq -e '.error.code=="agent_not_found"' >/dev/null 2>&1 || return 1
-  herdr pane read "$pane" --source visible --lines 6 2>/dev/null | grep -qE '[$#❯][[:space:]]*$'
+  # Captured into a variable, NOT piped straight into `grep -q`: grep -q exits (and closes its
+  # end of the pipe) the instant it finds a match, which is often before `herdr pane read`
+  # finishes writing the rest of a multi-line snapshot -- under the caller's `pipefail`, that
+  # SIGPIPEs the read and makes the whole pipeline register as FAILED even though the match was
+  # genuinely found. Confirmed live once the pane's snapshot grew past a single line (a shell
+  # prompt followed by other content): the pipe form intermittently/deterministically returned
+  # failure while an equivalent capture-then-grep never did.
+  read_out=$(herdr pane read "$pane" --source visible --lines 6 2>/dev/null)
+  printf '%s' "$read_out" | grep -qE '[$#❯][[:space:]]*$'
 }
 
 exit_agent() {
@@ -929,12 +838,7 @@ run_finish() {
 
   revalidate_session "$ROTATE_PANE" "$ROTATE_SESSION"
 
-  # Single-use per-handoff token: the pane lock only keeps two SIMULTANEOUS finish calls from
-  # interleaving -- it says nothing about a SEQUENTIAL replay of the same ping after the first
-  # finish already completed and released it (most exploitable for pi/codex, which have no
-  # session id to catch a stale ping via revalidate_session above). Claimed only now, right
-  # before the destructive step: an earlier failure (bad argv, collision, stale session) must
-  # not burn the token, or a corrected retry with the same handoff path would be locked out.
+  # Single-use per-handoff token, checked in two phases around exit_agent (see below for why).
   # Canonicalize the path first (realpath, falling back to the literal path if the file can't
   # be resolved for some reason) so /dir/file, /dir/./file, and a symlink to the same file all
   # collapse onto ONE token instead of bypassing each other; hash it rather than sanitizing the
@@ -951,9 +855,25 @@ run_finish() {
   canon_path=$(realpath -e -- "$handoff_path" 2>/dev/null) || canon_path="$handoff_path"
   content_hash=$(sha1sum -- "$canon_path" 2>/dev/null | cut -d' ' -f1) || content_hash=""
   token_file="$token_dir/$(printf '%s\n%s' "$canon_path" "$content_hash" | sha1sum | cut -d' ' -f1).used"
-  mkdir "$token_file" 2>/dev/null || die "this handoff ($handoff_path) has already been used to finish a rotation — not proceeding (replayed ping?)"
+
+  # Phase 1 -- CHECK ONLY, before exit_agent: a SEQUENTIAL replay of the same ping after an
+  # earlier finish already completed and released the pane lock (most exploitable for
+  # pi/codex, which have no session id to catch a stale ping via revalidate_session above)
+  # must be rejected before it ever /quits the NEW agent now occupying this pane -- it must
+  # not touch exit_agent at all.
+  [ -e "$token_file" ] && die "this handoff ($handoff_path) has already been used to finish a rotation — not proceeding (replayed ping?)"
 
   exit_agent "$ROTATE_PANE"
+
+  # Phase 2 -- CLAIM, only after exit_agent actually confirms the old agent gone: an earlier
+  # failure (bad argv, collision, stale session, or exit_agent itself timing out because the
+  # agent never went idle) must not burn the token -- in every one of those cases the target
+  # is untouched, so a corrected retry with the same handoff path would otherwise be locked
+  # out for no reason. mkdir is the atomic claim; a lost race here (another finish call for
+  # the same handoff slipped past phase 1 first) is indistinguishable from a genuine replay
+  # and must fail the same way.
+  mkdir "$token_file" 2>/dev/null || die "this handoff ($handoff_path) has already been used to finish a rotation — not proceeding (replayed ping?)"
+
   relaunch "$ROTATE_NAME" "$ROTATE_KIND" "$ROTATE_PANE" "${BASE_FLAGS[@]}"
   local vrc=0
   verify "$ROTATE_NAME" "$ROTATE_PANE" "$ROTATE_KIND" -- "${intended[@]}" || vrc=$?

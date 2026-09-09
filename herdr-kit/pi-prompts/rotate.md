@@ -12,7 +12,7 @@ that.
 
 Read `<repo>/herdr-kit/commands/rotate.md` for the full instructions -- the two-step
 handoff/finish flow, argument reference, and known limitations (positional-prompt replay,
-codex global-options-before-subcommand, `ROTATE_DROP_FLAGS_<KIND>`, etc.) all live there --
+codex global-options-before-subcommand, etc.) all live there --
 and follow it verbatim, with one substitution: run the scripts from
 `<repo>/herdr-kit/skills/scripts/herdr-rotate` instead of the
 `${CLAUDE_PLUGIN_ROOT}/skills/scripts/herdr-rotate` path it shows -- pi doesn't expand that

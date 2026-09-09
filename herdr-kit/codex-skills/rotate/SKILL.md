@@ -19,8 +19,8 @@ allowed-tools: Bash(*/scripts/herdr-rotate *), Bash(*/scripts/herdr-rotate-* *),
 This is the Codex-visible copy of Claude Code's `/rotate` command. **Read
 `<base>/../../commands/rotate.md` first** -- the full two-step handoff/finish flow,
 argument reference (`<name-or-pane> [--name N] [--model M] [--effort E]`), and known
-limitations (positional-prompt replay, codex global-options-before-subcommand,
-`ROTATE_DROP_FLAGS_<KIND>`, etc.) all live there; this file does not duplicate them.
+limitations (positional-prompt replay, codex global-options-before-subcommand, etc.)
+all live there; this file does not duplicate them.
 
 Follow that file verbatim, with one substitution: run the scripts from
 `<base>/../../skills/scripts/herdr-rotate` instead of the

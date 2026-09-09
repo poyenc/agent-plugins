@@ -4,17 +4,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=SCRIPTDIR/rotate-common.sh
 source "$HERE/rotate-common.sh"
 MODEL_FLAG=--model; EFFORT_FLAG=--effort; EFFORT_STYLE=flag
-# Boolean/valueless claude flags confirmed idempotent (repeating changes nothing) via `claude
-# --help` -- the exact-match allowlist dedupe_idempotent_flags uses to collapse a repeat WITHOUT
-# ever inferring one from argv shape (see that function's own comment for why). Scoped to
-# permission/verbosity flags specifically, not every boolean claude flag (e.g. --bare is left
-# off -- it's a startup-mode switch, not permission-related, so it's out of scope here).
-# --dangerously-skip-permissions/--verbose are exactly the pair a real operator alias on this box
-# adds (`alias claude='claude --dangerously-skip-permissions --verbose'` in ~/.bashrc, confirmed
-# live) -- not a guess. --allow-dangerously-skip-permissions is a DIFFERENT flag (enables
-# bypassing as an option rather than forcing it) included for the same alias-compounding
-# exposure if it's ever used instead/alongside.
-IDEMPOTENT_FLAGS=(--dangerously-skip-permissions --allow-dangerously-skip-permissions --verbose)
 
 # Marker for any of /status, /model, /effort: all three share this exact footer substring while
 # open, and none of them show it once dismissed.
