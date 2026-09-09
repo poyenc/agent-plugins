@@ -644,7 +644,22 @@ resolve_and_prepare() {
       # whatever kind is being rotated THIS time, including one (codex/pi) whose own
       # detect_override never touches this variable at all.
       DETECTED_MODEL_DEFAULT=0
-      detect_override "$ROTATE_PANE"
+      # A bare statement here would abort this whole script under set -e on failure, with
+      # nothing reaching the diagnostic below -- pi's detect_override can genuinely fail (a
+      # stuck picker it couldn't confirm closed; see herdr-rotate-pi's own close_modal), and
+      # that shouldn't be fatal here: unlike claude, pi has no OTHER verifiable signal at this
+      # call site (this whole block is best-effort auto-detection, not the pi-specific preflight
+      # in run_finish that already requires a model/effort to exist before anything destructive
+      # runs), so tolerate it and fall through with nothing detected. codex's own detect_override
+      # never returns 1 at all (confirmed by reading its source -- every failure path there is
+      # `return 0`), so it's unaffected either way. claude's is NOT tolerated: an already-stuck
+      # modal there is a real problem the caller should still see (test 5f2 expects this to keep
+      # aborting before /quit).
+      if [ "$ROTATE_KIND" = pi ]; then
+        detect_override "$ROTATE_PANE" || note "detect_override failed for pi (e.g. a picker it couldn't confirm closed) -- continuing without a live-detected value"
+      else
+        detect_override "$ROTATE_PANE"
+      fi
       if [ "$ROTATE_KIND" = pi ]; then
         # pi's captured argv is ALWAYS empty (process.title rewrite -- see capture_argv's own
         # comment and verify()'s pi branch), so default_model/default_effort can never be

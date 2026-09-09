@@ -23,7 +23,13 @@ setup(){ # $1=kind $2=name  -> exports fresh state + PATH
         MOCK_CLAUDE_MODAL_STUCK MOCK_PI_MODAL_STUCK MOCK_CLAUDE_QUIT_CONFIRM MOCK_NEVER_EXIT
   printf -- '--model\nopus\n--verbose\n' > "$MOCK_STATE/argv"   # original launch flags
   export PATH="$HERE/mock:$PATH"
-  export ROTATE_EXIT_POLL_SECS=5 ROTATE_VERIFY_POLL_SECS=5 ROTATE_DETECT_POLL_SECS=1
+  # pi's close_modal now requires two consecutive 1-second-apart clean polls before trusting a
+  # read (debounce -- see herdr-rotate-pi's own comment), so a 1-second deadline here would time
+  # out before genuinely-idle mock state could ever be confirmed. 6s comfortably covers every
+  # close_modal call in a full detect_override pass against the instant-responding mock. Tests
+  # that specifically want a FAST timeout (MOCK_PI_MODAL_STUCK) already override this locally
+  # with their own explicit, shorter value.
+  export ROTATE_EXIT_POLL_SECS=5 ROTATE_VERIFY_POLL_SECS=5 ROTATE_DETECT_POLL_SECS=6
   export HERDR_PANE_ID=wG:p1
   # Isolated per-test lock/token namespace -- NEVER the real production
   # /tmp/herdr-rotate-lock-<user> path, which real concurrent rotations on this machine may

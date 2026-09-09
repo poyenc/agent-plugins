@@ -26,21 +26,62 @@ exit_fallback() {       # pi ignores single ctrl-c/ctrl-d; two ctrl-d exit
 # /model command output (never header/footer/statusline) and cancels both with Esc, leaving
 # nothing changed. Unlike claude, pi's agent_status never reports "blocked" for these pickers,
 # so closure can't be confirmed via status -- close_modal instead polls for the picker's own
-# marker to actually disappear (re-sending Esc each round) before anything proceeds, so the
-# handoff prompt or the next picker is never sent into one that's still open.
-# Sets DETECTED_MODEL/DETECTED_EFFORT (empty if undetectable).
+# marker to actually disappear before anything proceeds, so the handoff prompt or the next
+# picker is never sent into one that's still open.
+#
+# A width-independent SNAPSHOT-EQUALITY design (compare the pane's content against a baseline
+# captured before opening) was tried first and rejected: confirmed live, in two separate
+# end-to-end runs against a real pi agent, that it produces spurious "never closes" failures even
+# when the picker plainly is closed and the correct value was already read -- some detail of the
+# live render (not fully root-caused; not the footer, which stayed byte-identical across the
+# runs that were compared) doesn't reliably return to exact byte-for-byte equality with an
+# earlier snapshot even once idle. A hardcoded marker check doesn't have this fragility, since it
+# only cares about a few specific characters, not the whole render.
+#
+# $2 (marker): SHORT, STATIC, CONTENT-INDEPENDENT text -- confirmed live, at a narrow
+# (40-column) pane, that a LONGER or value-dependent marker breaks deterministically: pi's own
+# renderer truncates the settings footer's tail (a full-string match can never succeed there),
+# and the selected-model row (name + bracketed provider + checkmark) can wrap across two
+# physical lines once the model name is long enough to push the wrap point mid-line (this is
+# fundamentally different from claude's short, fixed-length 'Esc to cancel' marker, which never
+# embeds any variable-length value and so never inherits this problem). PI_SETTINGS_MARKER and
+# PI_MODEL_SCOPE_MARKER below are exactly this kind of marker -- static picker chrome, not tied
+# to any selected value's length.
+#
+# $3 (pending, optional): a regex for the literal command just sent (e.g. "^/model$"), when the
+# caller is closing after giving up on that specific command's own open-wait loop. Confirmed
+# live: a fresh pi session's first /settings or /model leaves the raw command text echoed on its
+# own line -- with NEITHER marker present -- for several consecutive polls (observed up to and
+# beyond 20s in one run) while its catalog loads, before the picker actually renders. That state
+# is indistinguishable from "already closed" using marker-absence alone, so any give-up-and-close
+# call site passes its own just-sent command here as an extra "still resolving" signal -- a
+# closed-form check against a string this exact code just transmitted, not open-ended marker
+# enumeration.
+#
+# Requires TWO CONSECUTIVE clean polls (marker and pending both absent), not one, before
+# declaring closed -- a single favorable read isn't sufficient evidence either way.
+#
+# Escape is resent only while NOT yet clean, never on a round that already was -- confirmed live
+# that blindly resending Escape into an already-idle pane (every round, unconditionally, as an
+# earlier version of this function did) can trigger an unrelated pi keybinding (reproduced:
+# repeated Escapes after a picker had already closed opened pi's own "Session Tree" browser) --
+# a new, self-inflicted problem, not progress toward closing anything.
 close_modal() {
-  local pane="$1" marker="${2:-}" out deadline
+  local pane="$1" marker="$2" pending="${3:-}" out deadline clean=0
   herdr agent send-keys "$pane" esc >/dev/null 2>&1 || true
-  [ -n "$marker" ] || return 0
-  deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-30} ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     # A read failure is UNKNOWN, not "closed" -- treating it as closed would let a still-open
     # picker be mistaken for confirmed closure on a transient herdr read error.
-    if out=$(herdr pane read "$pane" --source visible --lines 30 2>/dev/null); then
-      printf '%s' "$out" | grep -qE "$marker" || return 0
+    if out=$(herdr pane read "$pane" --source visible --lines 40 2>/dev/null); then
+      if printf '%s' "$out" | grep -qE "$marker" || { [ -n "$pending" ] && printf '%s' "$out" | grep -qE "$pending"; }; then
+        clean=0
+        herdr agent send-keys "$pane" esc >/dev/null 2>&1 || true
+      else
+        clean=$((clean+1))
+        [ "$clean" -ge 2 ] && return 0
+      fi
     fi
-    herdr agent send-keys "$pane" esc >/dev/null 2>&1 || true
     command sleep 1
   done
   # note: every call site below propagates this via explicit `|| return 1` -- not relying on
@@ -50,10 +91,19 @@ close_modal() {
   return 1
 }
 
-# The full footer hint, not just a word from it, so ordinary transcript text mentioning
-# "search" or "thinking" in passing can't be mistaken for the picker actually being open.
-PI_SETTINGS_MARKER='Type to search · Enter/Space to change · Esc to cancel'
-PI_MODEL_MARKER='[A-Za-z0-9._-]+ \[[A-Za-z0-9._-]+\][[:space:]]*✓'
+# Short, guaranteed-intact PREFIXES/FRAGMENTS rather than full marker strings or value-dependent
+# rows -- confirmed live that pi's own renderer truncates the settings footer's tail at a narrow
+# (40-column) pane width (rendered as "Type to sear..."), so a full-string match can never
+# succeed there regardless of timing. Used for BOTH the closed-confirmation (close_modal, above)
+# and open-detection/value-extraction (detect_override, below).
+PI_SETTINGS_MARKER='Type to sea'
+PI_MODEL_SCOPE_MARKER='Scope: all'
+# Provider+checkmark alone, deliberately NOT requiring the model name on the same physical line:
+# confirmed live, at that same narrow width, that the selected row's name and its bracketed
+# provider+checkmark can wrap onto two separate lines (e.g. "\xe2\x86\x92 gpt-5.6-terra" / "[amd-gateway] \xe2\x9c\x93"),
+# which a single combined-line regex can never match. The model NAME is recovered separately
+# below, tolerating either layout.
+PI_MODEL_MARKER='\[[A-Za-z0-9._-]+\][[:space:]]*✓'
 
 detect_override() {
   local pane="$1" out="" deadline seen
@@ -61,25 +111,25 @@ detect_override() {
   DETECTED_MODEL=""
   DETECTED_EFFORT=""
 
-  # Confirm-closed, not fire-and-forget: either picker type could already be stuck open from
-  # an earlier call in this same process. Explicit `|| return 1` rather than relying on this
+  # Confirm-closed, not fire-and-forget: either picker type could already be stuck open from an
+  # earlier call in this same process. Explicit `|| return 1` rather than relying on this
   # script's own set -e: a caller that invokes detect_override as the LHS of || (verify() does,
   # for pi) disables -e for this ENTIRE call chain per POSIX/bash semantics, so a bare failing
   # statement here would silently be ignored instead of aborting.
-  close_modal "$pane" "$PI_SETTINGS_MARKER|$PI_MODEL_MARKER" || return 1
+  close_modal "$pane" "$PI_SETTINGS_MARKER|$PI_MODEL_SCOPE_MARKER" || return 1
   herdr agent prompt "$pane" "/settings" >/dev/null 2>&1 || return 0
   # Wait for the settings picker to actually render before typing the search text -- typing
   # into it too early lands the characters in the chat input instead (they're not the same
   # widget until the picker is up).
-  seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-30} ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
     if printf '%s' "$out" | grep -qF "$PI_SETTINGS_MARKER"; then seen=1; break; fi
     command sleep 1
   done
-  [ "$seen" = 1 ] || { close_modal "$pane" "$PI_SETTINGS_MARKER" || return 1; return 0; }
+  [ "$seen" = 1 ] || { close_modal "$pane" "$PI_SETTINGS_MARKER" '^[[:space:]]*/settings[[:space:]]*$' || return 1; return 0; }
   herdr agent send-keys "$pane" t h i n k i n g >/dev/null 2>&1 || true
-  seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-30} ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
     # Require the picker's own footer too, not just the label text alone, so an ordinary
@@ -94,22 +144,41 @@ detect_override() {
   close_modal "$pane" "$PI_SETTINGS_MARKER" || return 1
 
   herdr agent prompt "$pane" "/model" >/dev/null 2>&1 || return 0
-  out=""; seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
+  out=""; seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-30} ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     out=$(herdr pane read "$pane" --source visible --lines 30 2>/dev/null || true)
-    # Require the picker's "Scope: all | scoped" line too, not just the checkmark pattern
-    # alone -- that pattern by itself is broad enough to coincidentally match ordinary text.
-    if printf '%s' "$out" | grep -q 'Scope: all | scoped' && printf '%s' "$out" | grep -qE "$PI_MODEL_MARKER"; then seen=1; break; fi
+    if printf '%s' "$out" | grep -q "$PI_MODEL_SCOPE_MARKER" && printf '%s' "$out" | grep -qE "$PI_MODEL_MARKER"; then seen=1; break; fi
     command sleep 1
   done
   if [ "$seen" = 1 ]; then
-    local line name provider
-    line=$(printf '%s' "$out" | grep -oE "$PI_MODEL_MARKER" | tail -n1) || true
-    name=$(printf '%s' "$line" | awk '{print $1}')
-    provider=$(printf '%s' "$line" | grep -oE '\[[A-Za-z0-9._-]+\]' | tr -d '[]')
-    [ -n "$name" ] && [ -n "$provider" ] && DETECTED_MODEL="${provider}/${name}"
+    local lineno full_line name provider
+    # Last matching line number (tail -n1 semantics via grep -n), so a stale occurrence earlier
+    # in scrollback can't be mistaken for the picker's own current selection.
+    lineno=$(printf '%s' "$out" | grep -nE "$PI_MODEL_MARKER" | tail -n1 | cut -d: -f1) || lineno=""
+    if [ -n "$lineno" ]; then
+      full_line=$(printf '%s' "$out" | sed -n "${lineno}p")
+      provider=$(printf '%s' "$full_line" | grep -oE '\[[A-Za-z0-9._-]+\]' | tr -d '[]')
+      name=$(printf '%s' "$full_line" | sed -E 's/^[[:space:]]*(→[[:space:]]*)?([A-Za-z0-9._-]+)[[:space:]]+\[.*/\2/')
+      [ "$name" = "$full_line" ] && name=""   # sed left it unchanged: no name on this line (wrapped)
+      if [ -z "$name" ] && [ "$lineno" -gt 1 ]; then
+        # Wrapped layout: the name is on the PRECEDING physical line instead (confirmed live at
+        # a narrow pane width -- see PI_MODEL_MARKER's own comment). Bounded to the same
+        # identifier charset as the same-line path above (grep -oE, not the raw line) rather than
+        # taking the line verbatim -- confirmed live (cat -A on a real narrow-pane capture) that
+        # herdr's pane read does not leave trailing padding on this specific render, but bounding
+        # the charset costs nothing and also guards against any future padding/stray content
+        # regardless of what's confirmed true today. An even narrower width can wrap the model
+        # name itself across more than one physical line (confirmed live: "gpt-5.6-terr"/"a") --
+        # that case is already safe without further handling here, since PI_MODEL_MARKER's own
+        # bracket-pair match then fails to match at all (the bracket itself splits too), so `seen`
+        # never becomes 1 and DETECTED_MODEL stays empty via the existing fallback, rather than
+        # this branch ever running against an incomplete fragment.
+        name=$(printf '%s' "$out" | sed -n "$((lineno-1))p" | grep -oE '[A-Za-z0-9._-]+' | head -n1)
+      fi
+      [ -n "$name" ] && [ -n "$provider" ] && DETECTED_MODEL="${provider}/${name}"
+    fi
   fi
-  close_modal "$pane" "$PI_MODEL_MARKER" || return 1
+  close_modal "$pane" "$PI_MODEL_SCOPE_MARKER" '^[[:space:]]*/model[[:space:]]*$' || return 1
 }
 
 # Guarded so tests can `source` this file to unit-test detect_override/close_modal directly
