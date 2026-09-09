@@ -5,6 +5,6 @@ description: Disable ntfy push notifications for this session. Use when the user
 
 Disable ntfy notifications for this session.
 
-Run `<base>/../scripts/toggle.sh off "$CLAUDE_CODE_SESSION_ID"` where `<base>` is the directory containing this SKILL.md file (e.g. `.../ntfy/skills/ntfy-off`).
+Run `${CLAUDE_PLUGIN_ROOT}/skills/scripts/toggle.sh off "$CLAUDE_CODE_SESSION_ID"`.
 
 Tell the user: "ntfy notifications are now **off** for this session."

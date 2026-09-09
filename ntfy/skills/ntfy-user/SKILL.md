@@ -22,7 +22,7 @@ Call this skill whenever you have something worth pinging the user about:
 
 ## How to send
 
-Run `<base>/../scripts/ntfy-user.sh "<message>"` where `<base>` is the base directory for this skill.
+Run `${CLAUDE_PLUGIN_ROOT}/skills/scripts/ntfy-user.sh "<message>"`.
 
 ## Composing the message
 

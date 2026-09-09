@@ -21,6 +21,8 @@ prompt is delivered, whether or not anyone ever answers.
 
     <base>/../scripts/herdr-message send <target> "<text>" [--callback [MSG]]
 
+`<base>` is the directory containing this SKILL.md file (e.g. `.../herdr-kit/skills/message`) — resolved, that's `.../herdr-kit/skills/scripts/herdr-message` (`scripts/` is a sibling of this skill's own directory, not `.../herdr-kit/scripts/`).
+
 - `<target>` -- agent name or pane id (from `herdr agent list`).
 - `<text>` -- the message body.
 - `--callback` -- request a reply, using a default instruction telling the recipient to run
