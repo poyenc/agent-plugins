@@ -2,9 +2,10 @@
 name: message
 description: >
   Send a non-blocking, asynchronous message to another herdr agent, or reply to one you
-  received. Use whenever you want to update, ask, or check in with another agent without
-  blocking on its response -- e.g. after delegating work, to flag something relevant to
-  another agent's task, or to answer a message you were sent. Never blocks: sending returns
+  received. Use whenever you are about to send a prompt or message to another agent --
+  especially when you expect a response -- instead of a blocking `herdr agent prompt --wait`:
+  to update, ask, or check in after delegating work, to flag something relevant to another
+  agent's task, or to answer a message you were sent. Never blocks: sending returns
   immediately, and a reply (if you asked for one) arrives as your own next incoming turn,
   the same way any other prompt addressed to your pane does. No-op outside herdr
   (HERDR_ENV != 1).
