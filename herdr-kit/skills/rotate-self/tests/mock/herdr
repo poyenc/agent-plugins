@@ -39,7 +39,6 @@ case "$1 $2" in
   "agent prompt")
     p="$4"
     if [ "$p" = "/quit" ]; then echo 1 > "$MOCK_STATE/gone"; fi
-    case "$p" in /settings|/model) echo 1 > "$MOCK_STATE/pi_modal_open" ;; esac
     case "$p" in *"Continue the work described"*)
       [ "${MOCK_FAIL_KICKOFF:-0}" = 1 ] && { echo '{"error":{"code":"agent_prompt_stalled"}}' >&2; exit 1; } ;;
     esac
@@ -58,27 +57,6 @@ case "$1 $2" in
   "pane read")
     if [ "$(gone)" = 1 ]; then
       printf 'user@host:~/x$ \n'
-    elif [ "$MOCK_KIND" = pi ] && [ "$(cat "$MOCK_STATE/pi_modal_open" 2>/dev/null || echo 0)" = 1 ]; then
-      # Renders pi's /settings and /model pickers, reflecting whatever's currently in the
-      # live argv (post-relaunch during verify(), pre-relaunch during handoff's detect_override).
-      src="$MOCK_STATE/argv"
-      if [ -n "${MOCK_VERIFY_ARGV:-}" ] && [ "$(started)" = 1 ]; then src="$MOCK_VERIFY_ARGV"; fi
-      mapfile -t A < "$src" 2>/dev/null || A=()
-      model="" effort=""
-      for i in "${!A[@]}"; do
-        case "${A[$i]}" in
-          --model) model="${A[$((i+1))]}" ;;
-          --thinking) effort="${A[$((i+1))]}" ;;
-        esac
-      done
-      provider="${model%%/*}"; name="${model#*/}"
-      [ "$provider" = "$model" ] && provider=""
-      printf 'Scope: all | scoped\n'
-      printf 'Type to search · Enter/Space to change · Esc to cancel\n'
-      # No fallback: if argv has no --thinking, the picker genuinely shows nothing recognizable
-      # as an effort value, so DETECTED_EFFORT stays empty (a real "nothing to detect" case).
-      [ -n "$effort" ] && printf 'Thinking level          %s\n' "$effort"
-      [ -n "$name" ] && printf '%s [%s] \xe2\x9c\x93\n' "$name" "$provider"
     else
       printf 'agent ui drawing\n'
     fi ;;
@@ -89,11 +67,6 @@ case "$1 $2" in
     echo '{"result":{"agent":{}}}' ;;
   "agent send-keys")
     case " $* " in *' ctrl+d '*) echo 1 > "$MOCK_STATE/gone" ;; esac  # pi's exit fallback
-    # MOCK_PI_MODAL_STUCK: Esc never actually closes the picker, simulating a modal that never
-    # confirms closed (close_modal's poll keeps seeing the marker until it times out).
-    if [ "${MOCK_PI_MODAL_STUCK:-0}" != 1 ]; then
-      case " $* " in *' esc '*|*' escape '*) echo 0 > "$MOCK_STATE/pi_modal_open" ;; esac
-    fi
     echo '{"result":{"type":"ok"}}' ;;
   *) echo "{}" ;;
 esac
