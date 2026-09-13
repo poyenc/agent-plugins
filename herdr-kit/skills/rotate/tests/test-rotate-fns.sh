@@ -69,6 +69,34 @@ assert_eq "multiline arg preserved" $'line1\nline2' "${BASE_FLAGS[1]}"
 assert_eq "model flag" "--model" "${BASE_FLAGS[2]}"
 assert_eq "spaced value preserved" "opus a" "${BASE_FLAGS[3]}"
 
+# pi (Linux fork build) preserves argv as `node <script> <flags>` -- capture_argv must drop BOTH
+# the interpreter and the script path, not just argv[0], or the replay treats the script as an
+# initial prompt.
+MOCK_PROCINFO_PI=$(jq -nc '{result:{process_info:{foreground_processes:[
+  {name:"pi",argv:["node","/home/u/pi/packages/coding-agent/dist/cli.js","--model","opus","--system-prompt-file","/p.md"]}]}}}')
+herdr(){ case "$1 $2" in "pane process-info") printf '%s' "$MOCK_PROCINFO_PI";; *) echo "{}";; esac; }
+capture_argv wG:p7 pi
+assert_eq "pi node+script dropped: count"      "4" "${#BASE_FLAGS[@]}"
+assert_eq "pi flag0 is a real flag not script" "--model" "${BASE_FLAGS[0]}"
+assert_eq "pi model value"                     "opus" "${BASE_FLAGS[1]}"
+assert_eq "pi system-prompt-file flag"         "--system-prompt-file" "${BASE_FLAGS[2]}"
+assert_eq "pi system-prompt-file value"        "/p.md" "${BASE_FLAGS[3]}"
+
+# an absolute interpreter path is matched by basename too.
+MOCK_PROCINFO_PI_ABS=$(jq -nc '{result:{process_info:{foreground_processes:[
+  {name:"pi",argv:["/usr/bin/node","/abs/dist/cli.js","--model","sonnet"]}]}}}')
+herdr(){ case "$1 $2" in "pane process-info") printf '%s' "$MOCK_PROCINFO_PI_ABS";; *) echo "{}";; esac; }
+capture_argv wG:p7 pi
+assert_eq "abs node path dropped: count" "2" "${#BASE_FLAGS[@]}"
+assert_eq "abs node path: flag0"         "--model" "${BASE_FLAGS[0]}"
+
+# a clobbered pi (macOS / older builds) reports just ["pi"] -- drop stays 1, BASE_FLAGS empty.
+MOCK_PROCINFO_PI_CLOB=$(jq -nc '{result:{process_info:{foreground_processes:[
+  {name:"pi",argv:["pi"]}]}}}')
+herdr(){ case "$1 $2" in "pane process-info") printf '%s' "$MOCK_PROCINFO_PI_CLOB";; *) echo "{}";; esac; }
+capture_argv wG:p7 pi
+assert_eq "clobbered pi: empty BASE_FLAGS" "0" "${#BASE_FLAGS[@]}"
+
 # send_handoff: fires exactly one non-blocking prompt to the target, carrying the
 # orchestrator's own pane ($HERDR_PANE_ID) and a pane@session-prefix tag (so two concurrent
 # rotations, or a stale ping from an earlier rotation of the SAME agent, can't collide). Tagged

@@ -201,7 +201,21 @@ capture_argv() {
   mapfile -d '' -t raw < <(printf '%s' "$json" | jq -j --arg k "$kind" '
     .result.process_info.foreground_processes[] | select(.name==$k) | .argv[] | . + "\u0000"')
   [ "${#raw[@]}" -gt 0 ] || die "no $kind process on pane $pane"
-  mapfile -d '' -t BASE_FLAGS < <(strip_context_flags "$kind" "${raw[@]:1}")
+  # How many leading argv entries are the launcher rather than real flags. Normally just argv[0]
+  # (the bin: "claude"/"codex"/"pi"). But an interpreter-launched CLI reports its true cmdline:
+  # pi on Linux now preserves argv (writes /proc/self/comm instead of clobbering argv via
+  # process.title), so its argv is `node /abs/dist/cli.js <flags>` -- argv[0] is the interpreter
+  # and argv[1] the script path. Both must be dropped, or the replay becomes `pi /abs/dist/cli.js
+  # ...` and the CLI treats the script path as an initial prompt. A clobbered pi (older builds, or
+  # macOS) reports just ["pi"], so drop stays 1 and BASE_FLAGS is empty as before.
+  # Interpreters that exec as `<interp> <script> <flags>` (script directly after the binary).
+  # Deliberately excludes deno, which launches as `deno run <script>` -- a subcommand between the
+  # two would make drop=2 strip a flag instead of the script.
+  local drop=1
+  case "${raw[0]##*/}" in
+    node|nodejs|bun|ts-node|tsx) [ "${#raw[@]}" -gt 1 ] && drop=2 ;;
+  esac
+  mapfile -d '' -t BASE_FLAGS < <(strip_context_flags "$kind" "${raw[@]:$drop}")
 }
 
 # Only a "kind":"id" agent_session (currently claude) is a real per-session identifier; pi's is
@@ -455,14 +469,14 @@ verify() {
   done
   case "$st" in idle|done) ;; *) note "verify: agent not ready ($st)"; return 1 ;; esac
 
-  # pi rewrites its own process title on startup (process.title = APP_NAME in its own cli.js),
-  # which on Linux overwrites the /proc/pid/cmdline memory `herdr pane process-info` reads from
-  # -- capture_argv sees only the bare binary name, for BOTH the original agent and the freshly
-  # relaunched one. An exact argv comparison is therefore not just unreliable but ALWAYS false for
-  # pi (confirmed live: every real pi rotation failed verification this way). The only thing pi
-  # rotation can actually verify is the live model/effort, via the same screen-reading detector
-  # used to capture them -- so that's what's checked here instead. Flags beyond model/effort are
-  # NOT verified (and, per the same root cause, are not reliably replayed either).
+  # pi's argv is not a reliable source to verify against across platforms: on macOS (and older
+  # builds) pi rewrites its process title on startup (process.title = APP_NAME), overwriting the
+  # /proc/pid/cmdline memory `herdr pane process-info` reads from, so capture_argv sees only the
+  # bare binary name. (Linux fork builds now preserve argv via /proc/self/comm -- see
+  # capture_argv -- but a bare `pi` launch still carries no model/effort, and this branch must
+  # stay correct on the clobbered platforms too.) So pi verifies the live model/effort via the
+  # same screen-reading detector used to capture them, rather than comparing argv. Flags beyond
+  # model/effort are not verified here.
   if [ "$kind" = pi ] && declare -F detect_override >/dev/null 2>&1; then
     local want_model want_effort
     want_model=$(value_of_flag "$MODEL_FLAG" "${intended[@]}")
@@ -661,13 +675,14 @@ resolve_and_prepare() {
         detect_override "$ROTATE_PANE"
       fi
       if [ "$ROTATE_KIND" = pi ]; then
-        # pi's captured argv is ALWAYS empty (process.title rewrite -- see capture_argv's own
-        # comment and verify()'s pi branch), so default_model/default_effort can never be
-        # non-empty here -- the differs-from-default gate below would therefore never promote
-        # ANYTHING for pi, leaving OVERRIDE_MODEL/OVERRIDE_EFFORT empty and tripping run_finish's
-        # pi preflight (which requires both) on every single pi rotation. pi has no other
-        # verifiable signal at all for this kind (same reasoning already used in verify()'s pi
-        # branch and that preflight), so any detected value is promoted unconditionally instead.
+        # pi has no argv-derived default to gate against across platforms: on clobbered builds
+        # (macOS/older) capture_argv yields nothing, and even on a Linux fork build (which now
+        # preserves argv -- see capture_argv) a bare `pi` launch carries no model/effort. So
+        # default_model/default_effort may be empty, and the differs-from-default gate below would
+        # then never promote ANYTHING for pi, leaving OVERRIDE_MODEL/OVERRIDE_EFFORT empty and
+        # tripping run_finish's pi preflight (which requires both). detect_override is pi's live
+        # source of truth here (same reasoning as verify()'s pi branch and that preflight), so any
+        # detected value is promoted unconditionally instead.
         [ -z "$OVERRIDE_MODEL" ] && [ -n "$DETECTED_MODEL" ] && OVERRIDE_MODEL="$DETECTED_MODEL" && note "detected live model: $DETECTED_MODEL"
         [ -z "$OVERRIDE_EFFORT" ] && [ -n "$DETECTED_EFFORT" ] && OVERRIDE_EFFORT="$DETECTED_EFFORT" && note "detected live effort: $DETECTED_EFFORT"
       else
