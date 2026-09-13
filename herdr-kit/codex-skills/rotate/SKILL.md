@@ -27,6 +27,6 @@ Follow that file verbatim, with one substitution: run the scripts from
 `${CLAUDE_PLUGIN_ROOT}/skills/scripts/herdr-rotate` path it shows -- Codex doesn't
 expand that Claude Code plugin variable. `<base>` is the REAL directory of this SKILL.md —
 resolve it with `readlink -f` first, since the skill may be installed as a symlink into the
-plugin tree, so a raw `..` off the unresolved link would miss the real tree:
-`base="$(dirname "$(readlink -f <this SKILL.md's listed path>)")"`. Never filesystem-search
-for the scripts.
+plugin tree, so a raw `..` off the unresolved link would miss the real tree. Compute it as
+`base="$(dirname "$(readlink -f <this SKILL.md's listed path>)")"` and use `$base` for the
+`<base>` in the paths above. Never filesystem-search for the scripts.
