@@ -7,6 +7,33 @@ die()  { printf 'herdr-rotate: ERROR: %s\n' "$*" >&2; exit 1; }
 
 guard() { [ "${HERDR_ENV:-}" = 1 ]; }
 
+# A pane's live column width, or empty if herdr can't report it. A pane appears in its own
+# `edges` layout list; pick that entry's rect width. Best-effort only (see log_pane_diag).
+pane_width() {
+  herdr pane edges --pane "$1" 2>/dev/null \
+    | jq -r --arg p "$1" '.result.edges.layout.panes[]? | select(.pane_id==$p) | .rect.width' 2>/dev/null \
+    | head -n1
+}
+
+# Failure-path diagnostics ONLY (never the happy path): dump a captured pane render plus the
+# pane's live width to the rotation log, so a detection or exit failure can be diagnosed from the
+# log alone -- without launching a throwaway agent to re-probe a picker that, by the time anything
+# downstream notices the miss, has already been closed. The render is passed in by the caller,
+# captured at the moment of the miss; width is read fresh here and degrades to "unknown" rather
+# than ever failing the rotation over a diagnostic. The trailing marker delimits the raw render
+# (which carries no `herdr-rotate:` prefix of its own) from the normal log flow that resumes after.
+log_pane_diag() {
+  local pane="$1" ctx="$2" render="$3" w
+  # `|| true` INSIDE the substitution, not `w=$(...) || w=`: the per-kind scripts run under
+  # `set -euo pipefail`, and pane_width is a herdr|jq|head pipeline -- a failed/malformed
+  # `herdr pane edges` makes it exit nonzero (pipefail), which as a bare `w=$(...)` assignment
+  # would abort the whole rotation. A diagnostic must never do that -- degrade to "unknown".
+  w=$(pane_width "$pane" || true); [ -n "$w" ] || w=unknown
+  note "$ctx (pane $pane, width $w) -- captured render for diagnosis:"
+  printf '%s\n' "$render" >&2
+  note "(end captured render for $pane)"
+}
+
 # "wG:p4" + "claude" -> "claude-wgp4" (lowercase, keep [a-z0-9], clamp 32).
 derive_name() {
   local kind="$1" pane="$2" suffix
@@ -356,6 +383,11 @@ exit_agent() {
     note "/quit did not settle; trying kind fallback"
     exit_fallback "$pane" && return 0
   fi
+  # About to abort a rotation mid-flight over a pane that refused to exit -- capture what's
+  # actually on screen (a lingering confirmation prompt, a wedged UI) so the failure is
+  # diagnosable from the log instead of only by re-probing a pane that may be gone by then.
+  log_pane_diag "$pane" "exit failure: /quit did not free the pane" \
+    "$(herdr pane read "$pane" --source visible --lines 40 2>/dev/null || true)"
   die "agent did not exit on pane $pane"
 }
 
@@ -702,9 +734,11 @@ resolve_and_prepare() {
         # empty baseline" was never true, and a real live switch (e.g. sonnet -> opus mid-run) was
         # dropped on every single rotation, replaying the original bare launch instead. This is
         # exactly pi's OWN already-established reasoning just above for its identical "no baseline
-        # available" situation (pi's argv can never be captured at all) -- reached here via a
-        # launch that happened to omit the flag, rather than a kind that can never report one, but
-        # the right response is the same: trust detection rather than silently do nothing.
+        # available" situation (pi has no argv-derived model/effort baseline to gate against --
+        # clobbered on macOS/older builds, and absent from a bare launch even on a Linux fork build
+        # that now preserves argv; see the pi branch above) -- reached here instead via a launch
+        # that happened to omit the flag, but the right response is the same: trust detection rather
+        # than silently do nothing.
         # Exact match only when a baseline DOES exist, for every kind including claude -- no
         # substring/containment tolerance. An earlier version of this check treated a short alias
         # ("sonnet") as equivalent to a full identifier containing it ("claude-sonnet-5"),
@@ -760,6 +794,14 @@ resolve_and_prepare() {
           fi
         fi
       fi
+      # Failure-path note: detection ran but yielded no live model, so the relaunch silently
+      # replays whatever model the ORIGINAL launch argv carried (nothing, for a bare launch)
+      # instead of a freshly-read one -- surface it so a stale-model rotation is traceable from
+      # the log. Empty OVERRIDE_MODEL here means neither an explicit finish --model nor a promoted
+      # detection filled it; empty DETECTED_MODEL means detection itself came back with nothing (a
+      # matched-baseline detection leaves DETECTED_MODEL non-empty, so this stays quiet on that
+      # happy path). The per-kind detect_override already logged the unparsed render above, if any.
+      [ -z "$OVERRIDE_MODEL" ] && [ -z "$DETECTED_MODEL" ] && note "no live model detected on $ROTATE_PANE -- relaunch replays the original launch argv"
     else
       note "target not idle (status: ${target_status:-unknown}); skipping live model/effort detection to avoid racing its current turn"
     fi

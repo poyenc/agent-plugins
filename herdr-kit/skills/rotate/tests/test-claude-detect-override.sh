@@ -304,4 +304,66 @@ detect_override wG:p4
 assert_eq "a concrete numbered entry's own identifier is not flagged as the lossy Default fallback" \
   "0" "$DETECTED_MODEL_DEFAULT"
 
+# Failure-path diagnostic: the /model picker's footer WAS on screen (readiness gate fired, seen=1)
+# but no marked "❯ ... ✔" row could be parsed out of it (e.g. the selection glyphs dropped under a
+# wrap) -- a genuine parse miss, not an absent picker. detect_override must dump the unparsed render
+# so a future /model UI drift is diagnosable from the rotation log alone, without re-probing.
+STAGE=""
+SCREEN_MODEL_NO_MARKED_ROW=$'  Select model\n\n    1. Default (recommended)  Use the default model (currently Opus 5 (1M context))\n    2. Claude-Sonnet-5[1m]    Custom Sonnet model (1M context)\n\n  Enter to set as default \xc2\xb7 s to use this session only \xc2\xb7 Esc to cancel'
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) printf '%s' "$SCREEN_MODEL_NO_MARKED_ROW" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+CLDIAG_ERR=$(mktemp)
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wG:p4 2>"$CLDIAG_ERR"
+assert_eq "picker-shown-but-unparseable leaves model empty" "" "$DETECTED_MODEL"
+assert_eq "the parse miss logs the unparsed /model render for diagnosis" "1" \
+  "$(grep -c 'detect_override miss: claude /model' "$CLDIAG_ERR")"
+assert_eq "the miss dump includes the actual on-screen content" "1" "$(grep -c 'Select model' "$CLDIAG_ERR")"
+# A clean detect (SCREEN_MODEL, row 3 parsed) must NOT emit the miss diagnostic (no happy-path noise).
+STAGE=""
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) printf '%s' "$SCREEN_MODEL" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+detect_override wG:p4 2>"$CLDIAG_ERR"
+assert_eq "clean detect emits no miss diagnostic" "0" "$(grep -c 'detect_override miss' "$CLDIAG_ERR")"
+
+# seen=0 miss: the /model picker's footer never becomes the last non-blank line (the readiness gate
+# never fires -- e.g. the footer text itself drifted). A claude session always has a model, so this
+# is still a miss: the last render must be dumped even though seen never reached 1.
+STAGE=""
+SCREEN_MODEL_NO_FOOTER=$'  Select model\n\n  \xe2\x9d\xaf 3. Claude-Sonnet-5[1m] \xe2\x9c\x94  Custom Sonnet model\n\n  (some later shell output, no modal footer on the last line)\n> \n'
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) printf '%s' "$SCREEN_MODEL_NO_FOOTER" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+ROTATE_DETECT_POLL_SECS=1
+CLDIAG_ERR2=$(mktemp)
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wG:p4 2>"$CLDIAG_ERR2"
+assert_eq "seen=0 (footer never on the last line) leaves model empty" "" "$DETECTED_MODEL"
+assert_eq "seen=0 model miss dumps the /model render even though the footer never rendered" "1" \
+  "$(grep -c 'detect_override miss: claude /model' "$CLDIAG_ERR2")"
+rm -f "$CLDIAG_ERR" "$CLDIAG_ERR2"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

@@ -190,6 +190,13 @@ detect_override() {
       [ -n "$name" ] && [ -n "$provider" ] && DETECTED_MODEL="${provider}/${name}"
     fi
   fi
+  # Every pi session has a model, so an empty result here is ALWAYS a genuine miss -- whether the
+  # "✓ <id>" row was on screen but unparseable (name fragment / unresolved provider bracket), OR
+  # the picker/marker never rendered at all (seen=0, the same open-detection drift class the marker
+  # fix addressed). Dump the last /model render either way, so a future UI drift is diagnosable from
+  # the log without re-probing. (The effort phase gets no such dump: its marker IS a validated level
+  # word, so an empty effort there is a legitimately thinking-less session, not a miss.)
+  [ -n "$DETECTED_MODEL" ] || log_pane_diag "$pane" "detect_override miss: pi /model yielded no model" "$out"
   close_modal "$pane" "$PI_MODEL_MARKER" '^[[:space:]]*/model[[:space:]]*$' || return 1
 }
 

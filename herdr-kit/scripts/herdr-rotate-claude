@@ -217,6 +217,11 @@ detect_override() {
     local level; level=$(printf '%s' "$out" | grep -oE '[A-Za-z]+ effort.*adjust' | tail -n1 | awk '{print tolower($1)}') || true
     case "$level" in low|medium|high|xhigh|max) DETECTED_EFFORT="$level" ;; esac  # skip ultracode: not a --effort value
   fi
+  # Every claude session has a model, so an empty result here is ALWAYS a genuine miss -- whether the
+  # /model picker rendered but its marked row didn't parse, OR the picker/footer never rendered at
+  # all (seen=0, the open-detection drift class). Dump the last render either way, so a future
+  # /model UI drift is diagnosable from the log without re-probing.
+  [ -n "$DETECTED_MODEL" ] || log_pane_diag "$pane" "detect_override miss: claude /model yielded no model" "$out"
   # From here on WE opened the modal -- a failure to confirm it closed leaves the target's UI
   # state unknown right before the destructive /quit step that follows in run_finish, so this
   # must abort the whole rotation (matching pi's close_modal semantics), not silently continue.

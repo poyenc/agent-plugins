@@ -306,6 +306,48 @@ mk_pi_ui_mock \
 DETECTED_MODEL=x DETECTED_EFFORT=x
 detect_override wG:p4 >/dev/null 2>&1
 assert_eq "leading-~ id narrow: row detected and full id recovered with wrapped provider" "openrouter/~anthropic/claude-3.5" "$DETECTED_MODEL"
-rm -f "$LAST_CMD_FILE"
+
+# --- Part 5: failure-path diagnostic on a genuine /model parse miss -------------------------
+# When a "✓ <id>" row WAS on screen (open-detection fired) but the model still can't be parsed
+# out of it (a wrapped name fragment with no recoverable provider), detect_override must dump the
+# unparsed render so a future pi UI drift is diagnosable from the rotation log alone -- without
+# re-probing a picker that's already been closed. (The effort phase can't reach this state: its
+# marker IS a validated level word, so open-detection and extraction never disagree.)
+PIDIAG_ERR=$(mktemp)
+mk_pi_ui_mock \
+  '\xe2\x86\x92 \xe2\x9c\x93 high\n' \
+  '\xe2\x86\x92 \xe2\x9c\x93 gemini-3.7-fl\nash [amd-gateway] \xc2\xb7 default\n  (13/28)\n'
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wG:p4 2>"$PIDIAG_ERR" >/dev/null
+assert_eq "parse-miss leaves model empty" "" "$DETECTED_MODEL"
+assert_eq "parse-miss logs the unparsed /model render for diagnosis" "1" \
+  "$(grep -c 'detect_override miss: pi /model' "$PIDIAG_ERR")"
+assert_eq "the miss dump includes the actual on-screen fragment" "1" \
+  "$(grep -c 'gemini-3.7-fl' "$PIDIAG_ERR")"
+
+# A clean detect (model fully parsed) must NOT emit the miss diagnostic (no happy-path noise).
+mk_pi_ui_mock \
+  '\xe2\x86\x92 \xe2\x9c\x93 high\n' \
+  'Scope: all | scoped\n\xe2\x86\x92 \xe2\x9c\x93 gpt-5 [amd-gateway] \xc2\xb7 default\n  Enter to select\n'
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wG:p4 2>"$PIDIAG_ERR" >/dev/null
+assert_eq "clean detect emits no miss diagnostic" "0" "$(grep -c 'detect_override miss' "$PIDIAG_ERR")"
+
+# seen=0 miss: the /model picker's "✓ <id>" row never renders at all (the open-detection marker
+# itself drifted -- the same class of failure the marker fix addressed). A pi session always has a
+# model, so this is still a miss: the last /model render must be dumped even though seen never
+# reached 1. (The effort picker here has no "✓ <level>" row either -- that is a legitimately
+# thinking-less session and must NOT be logged as an effort miss.)
+mk_pi_ui_mock \
+  '    off\n    low\n    high\n' \
+  'Scope: all | scoped\n    gpt-5 [amd-gateway]\n  Enter to select\n'
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wG:p4 2>"$PIDIAG_ERR" >/dev/null
+assert_eq "seen=0 model miss leaves model empty" "" "$DETECTED_MODEL"
+assert_eq "seen=0 model miss dumps the /model render even though the row never rendered" "1" \
+  "$(grep -c 'detect_override miss: pi /model' "$PIDIAG_ERR")"
+assert_eq "a thinking-less session is NOT logged as an effort miss (no effort dump)" "0" \
+  "$(grep -c 'thinking' "$PIDIAG_ERR")"
+rm -f "$PIDIAG_ERR" "$LAST_CMD_FILE"
 
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

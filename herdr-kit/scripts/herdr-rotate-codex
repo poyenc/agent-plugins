@@ -20,7 +20,7 @@ extract_after_status() {  # only the text after the LAST echoed "/status" line
 count_status_echoes() { grep -cE '^[[:space:]]*/status[[:space:]]*$' || true; }
 
 detect_override() {
-  local pane="$1" before_count out="" after_marker="" after_count deadline seen line
+  local pane="$1" before_count out="" after_marker="" after_count deadline seen line miss_render
 
   DETECTED_MODEL=""
   DETECTED_EFFORT=""
@@ -47,7 +47,17 @@ detect_override() {
     fi
     command sleep 1
   done
-  [ "$seen" = 1 ] || return 0
+  if [ "$seen" != 1 ]; then
+    # No parseable "Model: ... (reasoning ...)" line was recognized. Every codex session has a
+    # model, so this is a genuine miss. Two shapes reach here: a fresh "/status" echo DID render but
+    # its Model line drifted out of the recognized form (after_marker was populated in the loop
+    # above -- dump that ISOLATED response, same reason as the seen=1 miss, never the 200-line $out
+    # snapshot with its pre-/status history), OR no fresh echo ever appeared (after_marker still
+    # empty -- $out is then the only thing to show).
+    [ -n "$after_marker" ] && miss_render="$after_marker" || miss_render="$out"
+    log_pane_diag "$pane" "detect_override miss: codex /status produced no parseable Model line" "$miss_render"
+    return 0
+  fi
   line=$(printf '%s' "$after_marker" | tr '\n' ' ' | grep -oE 'Model:[[:space:]]+[^(]+\(reasoning[[:space:]]+[A-Za-z]+') || true
   DETECTED_MODEL=$(printf '%s' "$line" | sed -E 's/Model:[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]]*\(reasoning.*//') || true
   DETECTED_EFFORT=$(printf '%s' "$line" | grep -oE 'reasoning[[:space:]]+[A-Za-z]+' | awk '{print $2}') || true
@@ -57,11 +67,21 @@ detect_override() {
   # point, but falling back to the old launch model is the safe failure mode here).
   case "$DETECTED_MODEL" in *[[:space:]]*|*'│'*) DETECTED_MODEL="" ;; esac
   case "$DETECTED_EFFORT" in minimal|low|medium|high|xhigh|max|ultra) ;; *) DETECTED_EFFORT="" ;; esac
+  # The panel rendered (seen=1) but the model didn't survive extraction (an adverse wrap spliced a
+  # border glyph/space into the name, rejected just above). Dump the ISOLATED post-/status response
+  # (after_marker), NOT the full 200-line recent-unwrapped snapshot in $out, so the wrap point is
+  # diagnosable without copying unrelated pre-/status pane history into the rotation log.
+  [ -n "$DETECTED_MODEL" ] || log_pane_diag "$pane" "detect_override miss: codex /status shown but Model line not parsed" "$after_marker"
 }
 
-sub="${1:-}"; shift || true
-case "$sub" in
-  handoff) run_handoff codex "$@" ;;
-  finish)  run_finish  codex "$@" ;;
-  *) die "usage: herdr-rotate-codex <handoff|finish> <name-or-pane> [...]" ;;
-esac
+# Guarded so tests can `source` this file to unit-test detect_override in isolation without the
+# dispatch below running (and die-ing on the empty argv) -- matching herdr-rotate-{claude,pi}'s
+# own convention for the same reason.
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  sub="${1:-}"; shift || true
+  case "$sub" in
+    handoff) run_handoff codex "$@" ;;
+    finish)  run_finish  codex "$@" ;;
+    *) die "usage: herdr-rotate-codex <handoff|finish> <name-or-pane> [...]" ;;
+  esac
+fi
