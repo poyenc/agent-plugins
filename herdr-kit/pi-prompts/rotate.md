@@ -6,7 +6,7 @@ description: >-
 argument-hint: '<name-or-pane> [--name N] [--model M] [--effort E]'
 ---
 First resolve where this template's own checkout actually lives -- run
-`readlink -f ~/.pi/agent/prompts/herdr-rotate.md`. The result is
+`readlink -f ~/.pi/agent/prompts/rotate.md`. The result is
 `<repo>/herdr-kit/pi-prompts/rotate.md`; `<repo>/herdr-kit` is two directories up from
 that.
 

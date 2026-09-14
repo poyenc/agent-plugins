@@ -5,7 +5,7 @@ description: >-
 argument-hint: '<handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]'
 ---
 First resolve where this template's own checkout actually lives -- run
-`readlink -f ~/.pi/agent/prompts/herdr-rotate-self.md`. The result is
+`readlink -f ~/.pi/agent/prompts/rotate-self.md`. The result is
 `<repo>/herdr-kit/pi-prompts/rotate-self.md`; `<repo>/herdr-kit` is two directories up
 from that.
 
