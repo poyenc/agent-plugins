@@ -5,7 +5,7 @@
 set -euo pipefail
 [ "${HERDR_ENV:-}" = 1 ] || { echo "not in herdr"; exit 1; }
 [ "${HERDR_WORKSPACE_ID:-}" = wG ] || { echo "must run in workspace wG"; exit 1; }
-HERE="$(cd "$(dirname "$0")" && pwd)"; SELF="$HERE/../../scripts/herdr-rotate-self"
+HERE="$(cd "$(dirname "$0")" && pwd)"; SELF="$HERE/../../../scripts/herdr-rotate-self"
 
 kind="${1:?kind}"; shift || true; [ "${1:-}" = "--" ] && shift
 case "$kind" in

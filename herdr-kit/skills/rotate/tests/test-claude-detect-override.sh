@@ -15,11 +15,11 @@
 # them.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-S="$HERE/../../scripts"
+S="$HERE/../../../scripts"
 PASS=0; FAIL=0
 assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; echo "    exp:[$2] act:[$3]"; FAIL=$((FAIL+1)); fi; }
 
-# shellcheck source=SCRIPTDIR/../../scripts/herdr-rotate-claude
+# shellcheck source=SCRIPTDIR/../../../scripts/herdr-rotate-claude
 source "$S/herdr-rotate-claude"
 set +e   # herdr-rotate-claude's own `set -e` (imported by sourcing) would otherwise abort this
          # script on the very failure paths being asserted.

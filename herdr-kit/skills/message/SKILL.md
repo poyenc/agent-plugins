@@ -20,9 +20,9 @@ prompt is delivered, whether or not anyone ever answers.
 
 ## Sending
 
-    <base>/../scripts/herdr-message send <target> "<text>" [--callback [MSG]]
+    <base>/scripts/herdr-message send <target> "<text>" [--callback [MSG]]
 
-`<base>` is the REAL directory of this SKILL.md — resolve it with `readlink -f` first, because this skill is commonly installed as a symlink (e.g. pi links `~/.pi/agent/skills/message` into the plugin tree), so a raw `..` off the unresolved link lands beside the symlink, not in the plugin. Compute it as `base="$(dirname "$(readlink -f <the SKILL.md path your skill list shows for this skill>)")"`; the script is then `$base/../scripts/herdr-message` (`scripts/` is a sibling of this skill's own directory, not `.../herdr-kit/scripts/`). Never filesystem-search for it — `readlink -f` on the listed SKILL.md path always yields the right directory.
+`<base>` is the REAL directory of this SKILL.md — resolve it with `readlink -f` first, because this skill is commonly installed as a symlink (e.g. pi links `~/.pi/agent/skills/message` into the plugin tree), so a raw `..` off the unresolved link lands beside the symlink, not in the plugin. Compute it as `base="$(dirname "$(readlink -f <the SKILL.md path your skill list shows for this skill>)")"`; the script is then `$base/scripts/herdr-message`, where `scripts` is a committed symlink sitting beside this SKILL.md that points at the plugin's top-level `scripts/` directory. Never filesystem-search for it — `readlink -f` on the listed SKILL.md path always yields the right directory.
 
 - `<target>` -- agent name or pane id (from `herdr agent list`).
 - `<text>` -- the message body.
@@ -41,7 +41,7 @@ nothing else the command waits for.
 
 ## Replying
 
-    <base>/../scripts/herdr-message reply <target> <message-id> "<text>"
+    <base>/scripts/herdr-message reply <target> <message-id> "<text>"
 
 `<target>` is the pane id or name to reply to (the sender's own identity is embedded in the
 message you received, in its `[msg-<id> from <name>@<pane>]` header line -- reply to the

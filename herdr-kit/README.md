@@ -27,18 +27,30 @@ a list that flag also removes it from.
 Codex has no command table at all — only skills, which (unlike commands) the model can
 choose to invoke on its own judgment. Pi does have a command-like mechanism (prompt
 templates, `/name`), but it's driven by a human typing in the editor, not read from a
-Claude Code plugin's `commands/` directory. So `rotate`/`rotate-self` get thin,
-harness-specific pointer files instead of being duplicated in full:
+Claude Code plugin's `commands/` directory. So `rotate`/`rotate-self` exist once per
+harness as **self-contained** files: each carries the full flow, argument reference, and
+known limitations for its own harness, and none reads another harness's doc. **Only the
+scripts under `scripts/` are shared.** Keeping the docs per-harness is deliberate —
+a non-Claude agent never encounters (and so can never mistakenly emit) the Claude-only
+`${CLAUDE_PLUGIN_ROOT}` path.
 
+- `commands/rotate.md`, `commands/rotate-self.md` — the Claude Code commands. They invoke
+  the scripts via `${CLAUDE_PLUGIN_ROOT}/scripts/…` (Claude Code sets that variable).
 - `codex-skills/rotate/SKILL.md`, `codex-skills/rotate-self/SKILL.md` — deliberately
   outside `skills/`, so Claude Code's own plugin scanner never surfaces them (that would
-  reopen the exact autonomous-self-rotation risk `disable-model-invocation` exists to
-  close). Meant to be symlinked into `~/.codex/skills/`. Each just tells the agent to
-  read the real `commands/rotate*.md` and substitute `<base>/../../skills/scripts/` for
-  the `${CLAUDE_PLUGIN_ROOT}`-relative path shown there.
-- `pi-prompts/rotate.md`, `pi-prompts/rotate-self.md` — meant to be symlinked into
-  `~/.pi/agent/prompts/`. Same idea, but pointing at the real absolute script path
-  (prompt templates are expanded to plain text with no `<base>` resolution).
+  reopen the autonomous-self-rotation risk `disable-model-invocation` exists to close).
+  Symlinked into `~/.codex/skills/`. They invoke the script via `"$base/scripts/…"`, where
+  `$base` is the readlink-resolved skill dir and `scripts` is a committed symlink beside
+  each skill pointing at `../../scripts/`.
+- `pi-prompts/rotate.md`, `pi-prompts/rotate-self.md` — symlinked into
+  `~/.pi/agent/prompts/`. They invoke the script via the fixed
+  `~/.pi/agent/prompts/scripts/herdr-rotate[-self]` path.
 
-`commands/rotate.md` and `commands/rotate-self.md` stay the single source of truth for
-the actual flow, argument reference, and known limitations.
+### Install symlinks
+
+- Codex: `~/.codex/skills/{rotate,rotate-self}` → the repo `codex-skills/*` dirs. The
+  `scripts` symlink beside each skill rides along, since it is committed in-repo.
+- Pi: `~/.pi/agent/prompts/{rotate,rotate-self}.md` → the repo `pi-prompts/*.md`, **plus**
+  `~/.pi/agent/prompts/scripts` → the repo `scripts/`. That last one is required and
+  must be created install-side: pi symlinks the prompt files individually, so an in-repo
+  sibling symlink would not follow them into `~/.pi/agent/prompts/`.

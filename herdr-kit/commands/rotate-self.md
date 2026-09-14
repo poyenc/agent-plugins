@@ -28,7 +28,7 @@ confirm the pane empty).
 
 2. Run:
 
-       ${CLAUDE_PLUGIN_ROOT}/skills/scripts/herdr-rotate-self <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]
+       ${CLAUDE_PLUGIN_ROOT}/scripts/herdr-rotate-self <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]
 
    This validates the handoff file, resolves your own pane/kind, and launches a detached
    process that will exit and relaunch this pane once you actually stop -- it returns

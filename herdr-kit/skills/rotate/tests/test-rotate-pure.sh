@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-source "$HERE/../../scripts/rotate-common.sh"
+source "$HERE/../../../scripts/rotate-common.sh"
 PASS=0; FAIL=0
 assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; echo "    exp:[$2] act:[$3]"; FAIL=$((FAIL+1)); fi; }
 rc(){ if "$@"; then echo 0; else echo 1; fi; }

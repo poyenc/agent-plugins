@@ -39,11 +39,11 @@
 # comment in herdr-rotate-pi for exactly what broke and why.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-S="$HERE/../../scripts"
+S="$HERE/../../../scripts"
 PASS=0; FAIL=0
 assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; echo "    exp:[$2] act:[$3]"; FAIL=$((FAIL+1)); fi; }
 
-# shellcheck source=SCRIPTDIR/../../scripts/herdr-rotate-pi
+# shellcheck source=SCRIPTDIR/../../../scripts/herdr-rotate-pi
 source "$S/herdr-rotate-pi"
 set +e   # herdr-rotate-pi's own `set -e` (imported by sourcing) would otherwise abort THIS
          # script the moment detect_override below returns the very failure being tested for.

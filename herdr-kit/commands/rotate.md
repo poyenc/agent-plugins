@@ -30,7 +30,7 @@ Raw slash-command arguments: `$ARGUMENTS`
 
 ### Step 1 — request the handoff
 
-    ${CLAUDE_PLUGIN_ROOT}/skills/scripts/herdr-rotate handoff <name-or-pane> [--name N] [--model M] [--effort E]
+    ${CLAUDE_PLUGIN_ROOT}/scripts/herdr-rotate handoff <name-or-pane> [--name N] [--model M] [--effort E]
 
 This resolves the target and captures its launch argv. If no `--model`/`--effort`
 override was given, it also detects a live mid-session model/effort change
@@ -69,7 +69,7 @@ path straight out of it.
 
 Then run, passing the **tag from the ping** (not just the bare name) as the target:
 
-    ${CLAUDE_PLUGIN_ROOT}/skills/scripts/herdr-rotate finish <name-or-pane>[@<session-prefix>] <handoff-path> [--name N] [--model M] [--effort E] [--kickoff "<message>"|off]
+    ${CLAUDE_PLUGIN_ROOT}/scripts/herdr-rotate finish <name-or-pane>[@<session-prefix>] <handoff-path> [--name N] [--model M] [--effort E] [--kickoff "<message>"|off]
 
 The `@<session-prefix>` is optional — omit it to skip the staleness check — but
 including it is how you get the protection described above.

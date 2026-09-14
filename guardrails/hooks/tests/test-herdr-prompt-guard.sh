@@ -44,7 +44,7 @@ echo "== SILENT allow: not a herdr agent prompt at all (no output, no auto-appro
 assert_eq "agent start --timeout (rotation)"   "" "$(run 'herdr agent start --timeout 120000 -- claude --model opus')"
 assert_eq "agent list"                         "" "$(run 'herdr agent list')"
 assert_eq "agent get"                          "" "$(run 'herdr agent get foo')"
-assert_eq "message-skill send --callback"      "" "$(run '/plug/herdr-kit/skills/scripts/herdr-message send foo "hi" --callback')"
+assert_eq "message-skill send --callback"      "" "$(run '/plug/herdr-kit/skills/message/scripts/herdr-message send foo "hi" --callback')"
 
 echo "== no-op outside herdr (HERDR_ENV != 1) =="
 blk=$(mkjson 'herdr agent prompt foo "hi" --wait')

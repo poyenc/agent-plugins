@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-source "$HERE/../../scripts/rotate-common.sh"
+source "$HERE/../../../scripts/rotate-common.sh"
 # verify() reads these unconditionally (not just for kind=pi) -- every real per-kind script sets
 # them at its own top, unconditionally, before anything can call verify(); this test sources
 # rotate-common.sh directly (standing in for that role), so it must do the same, up front.

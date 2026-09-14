@@ -6,7 +6,7 @@
 # Usage: smoke-live.sh <kind> [-- <launch-args...>]
 set -euo pipefail
 [ "${HERDR_ENV:-}" = 1 ] || { echo "not in herdr"; exit 1; }
-HERE="$(cd "$(dirname "$0")" && pwd)"; ROT="$HERE/../../scripts/herdr-rotate"
+HERE="$(cd "$(dirname "$0")" && pwd)"; ROT="$HERE/../../../scripts/herdr-rotate"
 kind="${1:?kind}"; shift || true; [ "${1:-}" = "--" ] && shift
 case "$kind" in
   claude) LAUNCH=(--model haiku --effort medium --verbose --dangerously-skip-permissions) ;;
