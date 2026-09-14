@@ -39,7 +39,7 @@ header/footer/statusline:
 
 - **claude** — opens `/status` (current model) and `/effort` (effort slider),
   reads the value, cancels both with Esc.
-- **pi** — opens `/settings` searched to "thinking" (current thinking level)
+- **pi** — opens `/thinking` (current thinking level, marked with a checkmark)
   and `/model` (current model, marked with a checkmark), reads the value,
   cancels both with Esc.
 - **codex** — reads `/status`, which reports both model and reasoning effort
@@ -119,11 +119,13 @@ need to name it yourself.
    (`agent_not_found` + shell prompt); `herdr agent start` same
    name+pane, replaying argv; poll the new agent to idle, verify — **kickoff is withheld if
    verification fails**, so a mis-launched agent is never told to start working. Verification
-   is argv element-by-element for claude/codex. **pi is different**: pi overwrites its own
-   `/proc/pid/cmdline` on startup (`process.title = ...` in its own CLI), so argv can never be
-   read back for pi — not at capture time, not at verify time. Only the live model/effort
-   (via the same `/settings`+`/model` screen-reading used to detect them) can be verified for
-   pi; any other launch flags are neither verifiable nor reliably replayed for this kind.
+   is argv element-by-element for claude/codex. **pi is different**: it verifies the live
+   model/effort (via the same `/thinking`+`/model` screen-reading used to detect them), not
+   argv. Current Linux (fork) pi preserves its argv (writes `/proc/self/comm` instead of
+   clobbering `/proc/pid/cmdline` via `process.title`), so pi's launch flags ARE captured and
+   replayed; but macOS/older builds still clobber it, so argv is not a reliable cross-platform
+   verify source — hence live model/effort is pi's only verified signal, and flags beyond
+   model/effort are not verified for this kind.
 
 Nothing is parsed from header/footer/statusline, so it is robust to terminal width, though a
 narrow-enough pane can still cause a live model/effort detection to miss (fails safe: falls

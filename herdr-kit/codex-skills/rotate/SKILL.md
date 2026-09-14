@@ -39,8 +39,8 @@ was given, it also detects a live mid-session model/effort change itself, readin
 bounded command output (never the reflowing header/footer/statusline):
 
 - **claude** -- opens `/status` and `/effort`, reads the value, cancels both with Esc.
-- **pi** -- opens `/settings` searched to "thinking" and `/model` (checkmarked current
-  model), reads the value, cancels both with Esc.
+- **pi** -- opens `/thinking` (current level, marked with a checkmark) and `/model` (checkmarked
+  current model), reads the value, cancels both with Esc.
 - **codex** -- reads `/status`, which reports model and reasoning effort in one non-modal
   printout (nothing to cancel); `/model` is deliberately never used (selecting even the
   current entry needs an Enter that can perturb state).
@@ -88,9 +88,11 @@ The dispatcher detects the kind and forwards to `herdr-rotate-<kind>`; you never
    + re-capture + re-apply overrides; re-check the session tag right before the destructive
    step; `/quit`; confirm the pane free; `herdr agent start` same name+pane replaying argv;
    poll to idle, verify -- **kickoff is withheld if verification fails**. Verification is
-   argv element-by-element for claude/codex; **pi is different** -- pi overwrites its own
-   `/proc/<pid>/cmdline` on startup, so its argv can never be read back, and only the live
-   model/effort can be verified for pi.
+   argv element-by-element for claude/codex; **pi is different** -- it verifies the live
+   model/effort (via the same `/thinking`+`/model` screen-reading), not argv. Current Linux
+   (fork) pi preserves its argv, so its launch flags are captured and replayed; but macOS/older
+   builds clobber it (`process.title`), so argv is not a reliable cross-platform verify source
+   and only the live model/effort is verified for pi.
 
 Nothing is parsed from header/footer/statusline, so it is robust to terminal width, though a
 narrow-enough pane can still make live model/effort detection miss (fails safe: falls back

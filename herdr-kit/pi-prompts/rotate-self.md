@@ -64,9 +64,10 @@ is no other notification.
 - Model/effort/name validation happens only after you've already stopped talking (inside the
   daemon) -- you get no synchronous feedback if e.g. `--model` is malformed; it only shows
   up in the daemon log.
-- pi overwrites its own `/proc/<pid>/cmdline` on startup, so its launch argv can never be
-  read back -- on relaunch only the live model/effort is verified; any other launch flags
-  are neither verifiable nor reliably replayed for this kind.
+- pi verifies only the live model/effort on relaunch, not argv: current Linux (fork) pi
+  preserves its argv (so its launch flags are captured and replayed), but macOS/older builds
+  clobber `/proc/<pid>/cmdline` (`process.title`), so argv is not a reliable cross-platform
+  verify source and flags beyond model/effort are not verified for this kind.
 - A positional prompt in the original launch is replayed on relaunch -- it survives argv
   capture and re-executes as the first turn; avoid by launching flags-only.
 - Do not alias the CLI binary itself -- the daemon's relaunch types the command into that

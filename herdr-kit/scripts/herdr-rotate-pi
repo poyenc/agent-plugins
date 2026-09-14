@@ -22,9 +22,9 @@ exit_fallback() {       # pi ignores single ctrl-c/ctrl-d; two ctrl-d exit
   return 1
 }
 
-# Reads the LIVE model/effort straight from pi's own /settings (searched to "thinking") and
-# /model command output (never header/footer/statusline) and cancels both with Esc, leaving
-# nothing changed. Unlike claude, pi's agent_status never reports "blocked" for these pickers,
+# Reads the LIVE model/effort straight from pi's own /thinking and /model pickers (never
+# header/footer/statusline) and cancels both with Esc, leaving nothing changed. Unlike claude,
+# pi's agent_status never reports "blocked" for these pickers,
 # so closure can't be confirmed via status -- close_modal instead polls for the picker's own
 # marker to actually disappear before anything proceeds, so the handoff prompt or the next
 # picker is never sent into one that's still open.
@@ -38,19 +38,20 @@ exit_fallback() {       # pi ignores single ctrl-c/ctrl-d; two ctrl-d exit
 # earlier snapshot even once idle. A hardcoded marker check doesn't have this fragility, since it
 # only cares about a few specific characters, not the whole render.
 #
-# $2 (marker): SHORT, STATIC, CONTENT-INDEPENDENT text -- confirmed live, at a narrow
-# (40-column) pane, that a LONGER or value-dependent marker breaks deterministically: pi's own
-# renderer truncates the settings footer's tail (a full-string match can never succeed there),
-# and the selected-model row (name + bracketed provider + checkmark) can wrap across two
-# physical lines once the model name is long enough to push the wrap point mid-line (this is
-# fundamentally different from claude's short, fixed-length 'Esc to cancel' marker, which never
-# embeds any variable-length value and so never inherits this problem). PI_SETTINGS_MARKER and
-# PI_MODEL_SCOPE_MARKER below are exactly this kind of marker -- static picker chrome, not tied
-# to any selected value's length.
+# $2 (marker): a SHORT picker marker that stays intact on a SINGLE physical line at a narrow
+# (40-column) pane. Confirmed live that a LONG / whole-string marker breaks deterministically:
+# pi's renderer truncates a picker footer's tail (a whole-footer match can never succeed there),
+# and a marker spanning the selected row's name + bracketed provider can straddle a wrap once the
+# name is long enough to push the wrap point mid-marker. The invariant is shortness + single-line
+# residency, NOT content-independence: PI_MODEL_SCOPE_MARKER is static picker chrome, whereas
+# PI_THINK_MARKER / PI_MODEL_MARKER are value-BEARING yet still safe -- each anchors on the ✓ plus
+# the short token riding on the checkmark's own physical line (the effort level, or the model id
+# up to the first space), so it survives the wrap instead of straddling it. (Claude's short,
+# fixed-length 'Esc to cancel' marker embeds no value at all, so it never had to satisfy this.)
 #
 # $3 (pending, optional): a regex for the literal command just sent (e.g. "^/model$"), when the
 # caller is closing after giving up on that specific command's own open-wait loop. Confirmed
-# live: a fresh pi session's first /settings or /model leaves the raw command text echoed on its
+# live: a fresh pi session's first /thinking or /model leaves the raw command text echoed on its
 # own line -- with NEITHER marker present -- for several consecutive polls (observed up to and
 # beyond 20s in one run) while its catalog loads, before the picker actually renders. That state
 # is indistinguishable from "already closed" using marker-absence alone, so any give-up-and-close
@@ -91,19 +92,26 @@ close_modal() {
   return 1
 }
 
-# Short, guaranteed-intact PREFIXES/FRAGMENTS rather than full marker strings or value-dependent
-# rows -- confirmed live that pi's own renderer truncates the settings footer's tail at a narrow
-# (40-column) pane width (rendered as "Type to sear..."), so a full-string match can never
-# succeed there regardless of timing. Used for BOTH the closed-confirmation (close_modal, above)
-# and open-detection/value-extraction (detect_override, below).
-PI_SETTINGS_MARKER='Type to sea'
-PI_MODEL_SCOPE_MARKER='Scope: all'
-# Provider+checkmark alone, deliberately NOT requiring the model name on the same physical line:
-# confirmed live, at that same narrow width, that the selected row's name and its bracketed
-# provider+checkmark can wrap onto two separate lines (e.g. "\xe2\x86\x92 gpt-5.6-terra" / "[amd-gateway] \xe2\x9c\x93"),
-# which a single combined-line regex can never match. The model NAME is recovered separately
-# below, tolerating either layout.
-PI_MODEL_MARKER='\[[A-Za-z0-9._-]+\][[:space:]]*✓'
+# Selected-row markers for pi's /model and /thinking pickers. The current pi build marks the
+# CURRENT live selection with a checkmark (✓, U+2713) immediately BEFORE the value: "→ ✓ <value>".
+# This replaced pi's older layout, where the checkmark TRAILED the value/provider
+# ("<name> [provider] ✓") -- the marker must now LEAD with ✓. Both are short and lead with the
+# ✓+value so they survive narrow-pane wrapping: the value rides on the checkmark's own physical
+# line (confirmed live intact down to a 17-column pane for the effort level; to ~34 cols for the
+# model NAME -- the model PROVIDER bracket can wrap onto the following physical line at narrow
+# widths, recovered in detect_override below).
+#
+# PI_THINK_MARKER is restricted to the known effort words, so it matches ONLY a /thinking row,
+# never a model row that merely starts "✓ <word>". PI_MODEL_MARKER matches "✓ <any non-whitespace
+# id token>" -- pi renders the raw item.id, which can START with characters outside a plain
+# identifier (e.g. "@cf/..." on cloudflare-workers-ai, "~anthropic/..." on openrouter) and can
+# embed "/", so restricting the charset here would make those rows invisible to open-detection.
+# It therefore also matches a stale "✓ <level>" -- harmless, since the two pickers are opened and
+# closed strictly one at a time and never coexist on screen. detect_override extracts this SAME
+# token, so open-detection and extraction never disagree about what the selected id is.
+PI_MODEL_SCOPE_MARKER='Scope: all'   # /model picker chrome; kept for the defensive pre-close catch-all
+PI_THINK_MARKER='✓[[:space:]]+(off|minimal|low|medium|high|xhigh|max)'
+PI_MODEL_MARKER='✓[[:space:]]+[^[:space:]]+'
 
 detect_override() {
   local pane="$1" out="" deadline seen
@@ -111,74 +119,78 @@ detect_override() {
   DETECTED_MODEL=""
   DETECTED_EFFORT=""
 
-  # Confirm-closed, not fire-and-forget: either picker type could already be stuck open from an
-  # earlier call in this same process. Explicit `|| return 1` rather than relying on this
-  # script's own set -e: a caller that invokes detect_override as the LHS of || (verify() does,
-  # for pi) disables -e for this ENTIRE call chain per POSIX/bash semantics, so a bare failing
-  # statement here would silently be ignored instead of aborting.
-  close_modal "$pane" "$PI_SETTINGS_MARKER|$PI_MODEL_SCOPE_MARKER" || return 1
-  herdr agent prompt "$pane" "/settings" >/dev/null 2>&1 || return 0
-  # Wait for the settings picker to actually render before typing the search text -- typing
-  # into it too early lands the characters in the chat input instead (they're not the same
-  # widget until the picker is up).
+  # Defensive pre-close: catch a stale picker of EITHER kind left open from an earlier call in
+  # this same process. Explicit `|| return 1` rather than relying on this script's own set -e: a
+  # caller that invokes detect_override as the LHS of || (verify() does, for pi) disables -e for
+  # this ENTIRE call chain per POSIX/bash semantics, so a bare failing statement here would
+  # silently be ignored instead of aborting.
+  close_modal "$pane" "$PI_THINK_MARKER|$PI_MODEL_MARKER|$PI_MODEL_SCOPE_MARKER" || return 1
+
+  # --- effort: LIVE per-session thinking level from /thinking ------------------------------
+  # /thinking's picker marks the live in-session level as "→ ✓ <level>" (its own subtitle says
+  # "Shift+Tab cycles thinking levels in-session"). This is the SESSION value -- deliberately NOT
+  # the /settings "Default thinking level per model" row, which is a GLOBAL default (often "none")
+  # that does not track the session (confirmed live: statusline showed the live level while that
+  # settings row read "none"). Only open + read + Esc; committing a level needs Enter, never sent.
+  herdr agent prompt "$pane" "/thinking" >/dev/null 2>&1 || return 0
   seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-30} ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
-    if printf '%s' "$out" | grep -qF "$PI_SETTINGS_MARKER"; then seen=1; break; fi
-    command sleep 1
-  done
-  [ "$seen" = 1 ] || { close_modal "$pane" "$PI_SETTINGS_MARKER" '^[[:space:]]*/settings[[:space:]]*$' || return 1; return 0; }
-  herdr agent send-keys "$pane" t h i n k i n g >/dev/null 2>&1 || true
-  seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-30} ))
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
-    # Require the picker's own footer too, not just the label text alone, so an ordinary
-    # transcript mention of "Thinking level" can't be mistaken for the row itself.
-    if printf '%s' "$out" | grep -qF "$PI_SETTINGS_MARKER" && printf '%s' "$out" | grep -q 'Thinking level'; then seen=1; break; fi
+    if printf '%s' "$out" | grep -qE "$PI_THINK_MARKER"; then seen=1; break; fi
     command sleep 1
   done
   if [ "$seen" = 1 ]; then
-    DETECTED_EFFORT=$(printf '%s' "$out" | grep -oE 'Thinking level[[:space:]]+[A-Za-z]+' | tail -n1 | awk '{print $NF}') || true
+    # tail -n1: the picker's own current row is the newest match; awk $2 is the level word right
+    # after the ✓ ($1). grep -oE trims the trailing description off the row. Short enough to stay
+    # intact even at a ~17-column pane (confirmed live).
+    DETECTED_EFFORT=$(printf '%s' "$out" | grep -oE "$PI_THINK_MARKER" | tail -n1 | awk '{print $2}') || true
     case "$DETECTED_EFFORT" in off|minimal|low|medium|high|xhigh|max) ;; *) DETECTED_EFFORT="" ;; esac
   fi
-  close_modal "$pane" "$PI_SETTINGS_MARKER" || return 1
+  close_modal "$pane" "$PI_THINK_MARKER" '^[[:space:]]*/thinking[[:space:]]*$' || return 1
 
+  # --- model: LIVE model from /model ------------------------------------------------------
+  # Open-detection keys off the selected "✓ <name>" row itself (the value row), NOT the top
+  # "Scope: all" chrome, so it still fires at a narrow width where that chrome has scrolled out
+  # of the visible region but the selection row is still on screen.
   herdr agent prompt "$pane" "/model" >/dev/null 2>&1 || return 0
   out=""; seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-30} ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     out=$(herdr pane read "$pane" --source visible --lines 30 2>/dev/null || true)
-    if printf '%s' "$out" | grep -q "$PI_MODEL_SCOPE_MARKER" && printf '%s' "$out" | grep -qE "$PI_MODEL_MARKER"; then seen=1; break; fi
+    if printf '%s' "$out" | grep -qE "$PI_MODEL_MARKER"; then seen=1; break; fi
     command sleep 1
   done
   if [ "$seen" = 1 ]; then
-    local lineno full_line name provider
-    # Last matching line number (tail -n1 semantics via grep -n), so a stale occurrence earlier
-    # in scrollback can't be mistaken for the picker's own current selection.
+    local lineno row name provider next
+    # Last matching line (a stale earlier "✓ <name>" in scrollback can't win over the picker's
+    # own current selection).
     lineno=$(printf '%s' "$out" | grep -nE "$PI_MODEL_MARKER" | tail -n1 | cut -d: -f1) || lineno=""
     if [ -n "$lineno" ]; then
-      full_line=$(printf '%s' "$out" | sed -n "${lineno}p")
-      provider=$(printf '%s' "$full_line" | grep -oE '\[[A-Za-z0-9._-]+\]' | tr -d '[]')
-      name=$(printf '%s' "$full_line" | sed -E 's/^[[:space:]]*(→[[:space:]]*)?([A-Za-z0-9._-]+)[[:space:]]+\[.*/\2/')
-      [ "$name" = "$full_line" ] && name=""   # sed left it unchanged: no name on this line (wrapped)
-      if [ -z "$name" ] && [ "$lineno" -gt 1 ]; then
-        # Wrapped layout: the name is on the PRECEDING physical line instead (confirmed live at
-        # a narrow pane width -- see PI_MODEL_MARKER's own comment). Bounded to the same
-        # identifier charset as the same-line path above (grep -oE, not the raw line) rather than
-        # taking the line verbatim -- confirmed live (cat -A on a real narrow-pane capture) that
-        # herdr's pane read does not leave trailing padding on this specific render, but bounding
-        # the charset costs nothing and also guards against any future padding/stray content
-        # regardless of what's confirmed true today. An even narrower width can wrap the model
-        # name itself across more than one physical line (confirmed live: "gpt-5.6-terr"/"a") --
-        # that case is already safe without further handling here, since PI_MODEL_MARKER's own
-        # bracket-pair match then fails to match at all (the bracket itself splits too), so `seen`
-        # never becomes 1 and DETECTED_MODEL stays empty via the existing fallback, rather than
-        # this branch ever running against an incomplete fragment.
-        name=$(printf '%s' "$out" | sed -n "$((lineno-1))p" | grep -oE '[A-Za-z0-9._-]+' | head -n1)
+      row=$(printf '%s' "$out" | sed -n "${lineno}p")
+      # Name is the WHOLE non-whitespace id token right after ✓ (checkmark-first layout), via the
+      # SAME PI_MODEL_MARKER used for open-detection above -- NOT a restricted charset: pi renders
+      # the raw item.id, which can start with "@"/"~" and embed "/" (e.g. "deepseek-ai/DeepSeek-V4-
+      # Pro", "@cf/..."). A narrower class would stop at the first such character and silently emit
+      # a DIFFERENT, wrong model, so take everything up to the next space instead.
+      name=$(printf '%s' "$row" | grep -oE "$PI_MODEL_MARKER" | tail -n1 | awk '{print $2}')
+      # Provider bracket: on the ✓ row right after the name (wide), or wrapped onto the NEXT
+      # physical line at narrow widths. The next-line form is accepted ONLY when that line STARTS
+      # with the bracket -- otherwise it is the NAME that wrapped (its tail, not the provider, is
+      # on the next line), so the token grabbed above is a fragment and we must fail empty rather
+      # than pair a truncated name with a provider into a corrupted override.
+      provider=$(printf '%s' "$row" | grep -oE '\[[A-Za-z0-9._-]+\]' | head -n1 | tr -d '[]')
+      if [ -z "$provider" ]; then
+        next=$(printf '%s' "$out" | sed -n "$((lineno+1))p")
+        if printf '%s' "$next" | grep -qE '^[[:space:]]*\['; then
+          provider=$(printf '%s' "$next" | grep -oE '\[[A-Za-z0-9._-]+\]' | head -n1 | tr -d '[]')
+        fi
       fi
+      # pi model must be provider-qualified; emit only when BOTH halves are present. Any
+      # unrecoverable wrap leaves DETECTED_MODEL empty -> safe launch-argv fallback, never a
+      # corrupted value.
       [ -n "$name" ] && [ -n "$provider" ] && DETECTED_MODEL="${provider}/${name}"
     fi
   fi
-  close_modal "$pane" "$PI_MODEL_SCOPE_MARKER" '^[[:space:]]*/model[[:space:]]*$' || return 1
+  close_modal "$pane" "$PI_MODEL_MARKER" '^[[:space:]]*/model[[:space:]]*$' || return 1
 }
 
 # Guarded so tests can `source` this file to unit-test detect_override/close_modal directly
