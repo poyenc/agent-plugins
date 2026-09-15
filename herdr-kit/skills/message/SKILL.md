@@ -41,13 +41,19 @@ nothing else the command waits for.
 
 ## Replying
 
-    <base>/scripts/herdr-message reply <target> <message-id> "<text>"
+    <base>/scripts/herdr-message reply <target> <message-id> "<text>" [--callback [MSG]]
 
 `<target>` is the pane id or name to reply to (the sender's own identity is embedded in the
 message you received, in its `[msg-<id> from <name>@<pane>]` header line -- reply to the
 `<pane>` part). `<message-id>` is the `<id>` from that same header (or from a
 `--callback`-requested instruction, if one was given). This builds the `[reply:<id> from
 ...]` envelope for you -- don't hand-construct it yourself.
+
+`--callback [MSG]` works exactly as it does for `send` (default instruction, custom `MSG`, or
+the literal `--callback=<msg>` form), and it appends the SAME callback-request block -- so a
+threaded reply can ALSO ask for a further response in one call. The requested reply threads
+under the SAME `<message-id>` you are replying to, keeping a multi-round exchange under one
+correlation id.
 
 ## How it works
 
@@ -65,7 +71,8 @@ rather than reporting success.
 - **Message ids are not unique across the whole session, only informally distinct.** A 6-char
   random id is meant to be human/agent-legible for casual correlation, not a collision-proof
   identifier -- don't rely on it for anything security- or correctness-critical.
-- **A `<text>` starting with `-` needs no special handling** -- `<target>`/`<text>` are fixed
-  positionals, never flag-sniffed. A custom `--callback` message starting with `-`, however,
-  DOES need the `--callback=<msg>` form specifically (see above) -- the bare `--callback [MSG]`
+- **A `<text>` starting with `-` needs no special handling** -- the leading positionals (send's
+  `<target>`/`<text>`, reply's `<target>`/`<message-id>`/`<text>`) are fixed and never
+  flag-sniffed. A custom `--callback` message starting with `-`, however -- for either subcommand
+  -- DOES need the `--callback=<msg>` form specifically (see above): the bare `--callback [MSG]`
   peek-ahead form can never tell such a message apart from "no value given."

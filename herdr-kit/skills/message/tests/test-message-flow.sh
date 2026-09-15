@@ -77,6 +77,28 @@ assert_eq "reply output is valid JSON even with a quote-containing id" "0" "$(pr
 assert_eq "reply output's message_id decodes back to the literal quote-containing id" "1" "$(printf '%s' "$out" | jq -r '.message_id' | grep -cF 'a"b')"
 
 setup
+export MOCK_SENDER_NAME=skill-writer
+bash "$S/herdr-message" reply wF:p1 abc123 "done" --callback >/dev/null 2>&1
+assert_eq "reply bare --callback: envelope requests a reply, threaded under the SAME id" "1" "$(grep -c 'herdr-message reply wF:p1 abc123' "$MOCK_CALLS")"
+assert_eq "reply bare --callback: still carries the reply:<id> tag" "1" "$(grep -c 'reply:abc123 from skill-writer@wF:p1' "$MOCK_CALLS")"
+
+setup
+bash "$S/herdr-message" reply wF:p1 abc123 "done" --callback "your next verdict please" >/dev/null 2>&1
+assert_eq "reply custom --callback text is used instead of the default" "1" "$(grep -c 'your next verdict please' "$MOCK_CALLS")"
+assert_eq "reply custom --callback: default instruction is NOT also sent" "0" "$(grep -c 'herdr-message reply' "$MOCK_CALLS")"
+
+setup
+bash "$S/herdr-message" reply wF:p1 abc123 "done" --callback="- dash-leading verdict request" >/dev/null 2>&1
+assert_eq "reply --callback=<msg> delivers a dash-leading custom callback" "1" "$(grep -c -- '- dash-leading verdict request' "$MOCK_CALLS")"
+assert_eq "reply --callback=<msg>: default instruction is NOT also sent" "0" "$(grep -c 'herdr-message reply' "$MOCK_CALLS")"
+
+# reply <text> starting with "-" must stay a positional (never flag-sniffed), same as send
+setup
+out=$(bash "$S/herdr-message" reply wF:p1 abc123 "- dash-leading reply body" 2>&1); rc=$?
+assert_eq "reply <text> starting with '-' succeeds" "0" "$rc"
+assert_eq "reply dash-leading text is delivered literally" "1" "$(grep -c -- '- dash-leading reply body' "$MOCK_CALLS")"
+
+setup
 export MOCK_FAIL_SEND=1
 out=$(bash "$S/herdr-message" reply wF:p1 abc123 "done" 2>&1); rc=$?
 assert_eq "reply propagates a failed underlying prompt (dies loudly, not swallowed to 0)" "1" "$rc"
@@ -92,6 +114,7 @@ assert_eq "reply failure with no underlying diagnostic has no dangling ': ' suff
 ( HERDR_ENV=1; bash "$S/herdr-message" send wK:p1 >/dev/null 2>&1 ); assert_eq "send missing text dies" "1" "$?"
 ( HERDR_ENV=1 HERDR_PANE_ID=wF:p1; bash "$S/herdr-message" reply wF:p1 abc123 >/dev/null 2>&1 ); assert_eq "reply missing text dies" "1" "$?"
 ( HERDR_ENV=1 HERDR_PANE_ID=wF:p1; bash "$S/herdr-message" send wK:p1 "x" --bogus >/dev/null 2>&1 ); assert_eq "send rejects an unknown option" "1" "$?"
+( HERDR_ENV=1 HERDR_PANE_ID=wF:p1; bash "$S/herdr-message" reply wF:p1 abc123 "x" --bogus >/dev/null 2>&1 ); assert_eq "reply rejects an unknown option" "1" "$?"
 
 rm -f "$MOCK_CALLS"
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
