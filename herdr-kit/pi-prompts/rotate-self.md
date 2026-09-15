@@ -5,7 +5,7 @@ description: >-
   USER explicitly asks the current agent to rotate/restart itself in this turn -- never
   self-trigger on your own judgment (e.g. noticing your own context is getting full);
   surface that observation and let the user decide. To rotate a DIFFERENT agent's pane,
-  use the rotate prompt instead. No-op outside herdr (HERDR_ENV != 1).
+  use the `rotate` skill instead. No-op outside herdr (HERDR_ENV != 1).
 argument-hint: '<handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]'
 ---
 Rotate the calling agent's own pane in place: write your own handoff, launch a detached
@@ -73,4 +73,4 @@ is no other notification.
 - Do not alias the CLI binary itself -- the daemon's relaunch types the command into that
   aliased shell, so the alias's flags stack on every rotation.
 - This only rotates the CALLING agent's own pane. To rotate a different agent, use the
-  rotate prompt instead.
+  `rotate` skill instead.

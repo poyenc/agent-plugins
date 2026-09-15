@@ -5,7 +5,7 @@ description: >
   the USER explicitly asks the current agent to rotate/restart itself in this turn.
   Never self-trigger on your own judgment (e.g. noticing your own context is getting
   full) -- surface that observation to the user and let them decide. To rotate a
-  DIFFERENT agent's pane, use /rotate instead -- this command only works on the
+  DIFFERENT agent's pane, use the `rotate` skill instead -- this command only works on the
   calling agent's own pane. No-op outside herdr (HERDR_ENV != 1).
 argument-hint: '<handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]'
 disable-model-invocation: true
@@ -15,7 +15,7 @@ allowed-tools: Bash(*/scripts/herdr-rotate-self *), Bash(herdr *)
 Rotate the calling agent's own pane in place: write your own handoff, launch a detached
 daemon, then stop. The daemon runs herdr-rotate's own `finish` step against your pane
 from a separate process -- the only way around `finish`'s own self-rotation deadlock
-(see `/rotate`'s "Known limitations": `finish` cannot target the calling agent's own
+(see the `rotate` skill's "Known limitations": `finish` cannot target the calling agent's own
 pane, because it would need its own process to have already exited before it can
 confirm the pane empty).
 
@@ -68,11 +68,11 @@ is no other notification.
   (bad override, name collision, verify failure), there is no automatic notification --
   the old agent may already be gone. Check the daemon log (its path is printed to stderr
   when you invoke this script) or the pane directly.
-- All of `/rotate`'s own known limitations apply verbatim here, since the daemon
+- All of the `rotate` skill's own known limitations apply verbatim here, since the daemon
   literally invokes herdr-rotate's own `finish` (positional-prompt replay, name-collision
   check-then-use window, codex global-options-before-subcommand).
 - Model/effort/name validation happens only after you've already stopped talking (inside
   the daemon) -- you get no synchronous feedback if e.g. `--model` is malformed; it only
   shows up in the daemon log.
 - This command only rotates the CALLING agent's own pane. To rotate a different agent, use
-  `/rotate` instead.
+  the `rotate` skill instead.
