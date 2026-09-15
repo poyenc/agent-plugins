@@ -1,5 +1,5 @@
 {
-  "description": "Behavioral guardrails: block sleep, block built-in memory writes, warn on 2+ concurrent crons, block named agents, block oversized Read calls, guard `herdr agent prompt` (block blocking --wait, hint callbacks on plain sends).",
+  "description": "Behavioral guardrails: block sleep, block built-in memory writes, warn on 2+ concurrent crons, block named agents, block oversized Read calls, guard `herdr agent prompt` (block blocking --wait, hint callbacks on plain sends), block whole-tree `find` scans, block plain whole-tree recursive searches (grep -r/rg/fd/ls -R rooted at / or $HOME).",
   "hooks": {
     "PreToolUse": [
       {
@@ -16,6 +16,14 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/herdr-prompt-guard.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-blind-find.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-blind-search.sh\""
           }
         ]
       },
