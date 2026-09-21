@@ -7,6 +7,15 @@ min_minutes="${GUARDRAILS_MIN_CRON_MINUTES:-5}"
 
 payload=$(cat)
 
+# Block one-shot crons (recurring:false). ScheduleWakeup is the right tool for
+# one-time delayed actions; one-shot CronCreate also breaks cron-count accounting
+# because auto-deletion never emits CronDelete.
+recurring=$(printf '%s' "$payload" | jq -r 'if .tool_input.recurring == false then "false" else "true" end')
+if [ "$recurring" = "false" ]; then
+  printf '{"decision":"block","reason":"One-shot CronCreate (recurring:false) is banned. For a one-time delayed action use ScheduleWakeup instead — it is designed for that pattern and does not interact with the active-cron count."}\n'
+  exit 0
+fi
+
 session_id=$(printf '%s' "$payload" | jq -r '.session_id // ""')
 
 count_file="${CLAUDE_CODE_TMPDIR:-/tmp}/guardrails-plugin/cron-count-${session_id}"
