@@ -22,7 +22,12 @@ prompt is delivered, whether or not anyone ever answers.
 
     <base>/scripts/herdr-message send <target> "<text>" [--callback [MSG]]
 
-`<base>` is the REAL directory of this SKILL.md — resolve it with `readlink -f` first, because this skill is commonly installed as a symlink (e.g. pi links `~/.pi/agent/skills/message` into the plugin tree), so a raw `..` off the unresolved link lands beside the symlink, not in the plugin. Compute it as `base="$(dirname "$(readlink -f <the SKILL.md path your skill list shows for this skill>)")"`; the script is then `$base/scripts/herdr-message`, where `scripts` is a committed symlink sitting beside this SKILL.md that points at the plugin's top-level `scripts/` directory. Never filesystem-search for it — `readlink -f` on the listed SKILL.md path always yields the right directory.
+`<base>` is the real directory of this SKILL.md. How to find it depends on your harness:
+- **Claude Code**: a `Base directory for this skill: <PATH>` line was injected above — use `<PATH>` directly as `$base`.
+- **Pi, Codex, and others**: your skill listing shows the full path to this SKILL.md. Run:
+  `base="$(dirname "$(readlink -f /path/from/your/skill/listing/SKILL.md)")"`
+
+The script is then `$base/scripts/herdr-message`, where `scripts` is a committed symlink beside this SKILL.md pointing at the plugin's top-level `scripts/` directory.
 
 - `<target>` -- agent name or pane id (from `herdr agent list`).
 - `<text>` -- the message body.

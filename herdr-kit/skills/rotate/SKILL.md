@@ -27,20 +27,20 @@ use rotate-self instead -- `finish` below cannot exit the very process it is run
 so self-rotation is rejected here.
 
 Each step below is a SEPARATE Bash tool call, and no shell state survives between calls, so
-resolve the script path inline in EVERY invocation -- never set a variable in one call and
-reuse it in a later one. `<base>` is shorthand for the REAL directory of this SKILL.md,
-resolved with `readlink -f` (the skill installs as a symlink into the plugin tree, so a raw
-`..` off the unresolved link would miss the real tree):
+resolve `<base>` inline in EVERY invocation -- never set a variable in one call and reuse it
+in a later one. `<base>` is the real directory of this SKILL.md; how to find it depends on
+your harness:
+- **Claude Code**: a `Base directory for this skill: <PATH>` line was injected above — `<base> = <PATH>`.
+- **Pi, Codex, and others**: your skill listing shows the full path to this SKILL.md —
+  `<base> = $(dirname "$(readlink -f /path/from/your/skill/listing/SKILL.md)")`.
 
-    <base> = $(dirname "$(readlink -f <this SKILL.md's listed path>)")
-
-so `<base>/scripts/herdr-rotate` is the script (`scripts` is a symlink beside this skill,
-into the plugin's shared `scripts/`). Never filesystem-search for it. Each step below shows
-the full inline form -- use it exactly, substituting this SKILL.md's real listed path.
+`<base>/scripts/herdr-rotate` is the script (`scripts` is a symlink beside this SKILL.md into
+the plugin's shared `scripts/`). Each step below shows the full inline form — substitute
+`<base>` accordingly.
 
 ## Step 1 -- request the handoff
 
-    "$(dirname "$(readlink -f <this SKILL.md's listed path>)")/scripts/herdr-rotate" handoff <name-or-pane> [--name N] [--model M] [--effort E]
+    <base>/scripts/herdr-rotate handoff <name-or-pane> [--name N] [--model M] [--effort E]
 
 This resolves and validates the target (kind, pane, name, and any `--name`/`--model`/`--effort`
 you passed). It does NOT capture argv or probe the target's live model/effort here -- that all
@@ -60,7 +60,7 @@ ping arrives as your own next incoming message (a prompt addressed to your pane)
 does, read the tag and the absolute path straight out of it. Then run, passing the **tag
 from the ping** (not just the bare name) as the target:
 
-    "$(dirname "$(readlink -f <this SKILL.md's listed path>)")/scripts/herdr-rotate" finish <name-or-pane>[@<session-prefix>] <handoff-path> [--name N] [--model M] [--effort E] [--kickoff "<message>"|off]
+    <base>/scripts/herdr-rotate finish <name-or-pane>[@<session-prefix>] <handoff-path> [--name N] [--model M] [--effort E] [--kickoff "<message>"|off]
 
 The `@<session-prefix>` is optional (omit to skip the staleness check). **Pass the exact
 same `--name`/`--model`/`--effort` you gave to `handoff`** -- nothing is persisted between

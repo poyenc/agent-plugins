@@ -26,15 +26,13 @@ before it could confirm the pane empty).
    to get an absolute path; do not duplicate its judgment here. Do this BEFORE the next
    step; there is no ping/wait mechanism here.
 
-2. Resolve the script's real path, then run it. `<base>` is the REAL directory of this
-   SKILL.md -- resolve it with `readlink -f` (the skill installs as a symlink into the
-   plugin tree, so a raw `..` off the unresolved link would miss the real tree):
+2. Resolve `<base>` (the real directory of this SKILL.md) from the path your skill listing
+   shows for this file, then run the script:
 
-       base="$(dirname "$(readlink -f <this SKILL.md's listed path>)")"
+       base="$(dirname "$(readlink -f /path/from/your/skill/listing/SKILL.md)")"
        "$base/scripts/herdr-rotate-self" <handoff-path> [--name N] [--model M] [--effort E] [--kickoff MSG|off]
 
-   (`scripts` is a symlink beside this skill, into the plugin's shared `scripts/`.
-   Never filesystem-search for the script.) This validates the handoff file, resolves your
+   (`scripts` is a symlink beside this SKILL.md, into the plugin's shared `scripts/`.) This validates the handoff file, resolves your
    own pane/kind, and launches a detached process that will exit and relaunch this pane once
    you actually stop -- it returns immediately (well under a second).
 
