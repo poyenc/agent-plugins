@@ -48,6 +48,7 @@ out=$(run 'herdr agent wait foo')
 assert_eq "block payload parses as JSON" ok "$(valid_json "$out")"
 assert_eq "reason mentions run_in_background" yes "$(printf '%s' "$out" | jq -r .reason | grep -qi 'run_in_background' && echo yes || echo no)"
 assert_eq "reason mentions polling with a short read"  yes "$(printf '%s' "$out" | jq -r .reason | grep -qiE 'pane read|agent read' && echo yes || echo no)"
+assert_eq "reason also names an action actually available on pi" yes "$(printf '%s' "$out" | jq -r .reason | grep -qi 'message skill' && echo yes || echo no)"
 
 echo "== no-op outside herdr =="
 assert_eq "HERDR_ENV unset: allowed even for a real invocation" none "$(decision "$(noherdr 'herdr agent wait foo')")"
