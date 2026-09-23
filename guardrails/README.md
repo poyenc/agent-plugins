@@ -41,6 +41,32 @@ The cron guard needs a live count of active crons per session; these keep it:
 | **[cron-track-delete](hooks/scripts/cron-track-delete.sh)** | `PostToolUse` → `CronDelete` | Decrements it. |
 | **[cron-session-end](hooks/scripts/cron-session-end.sh)** | `SessionEnd` | Cleans up the counter file for the session. |
 
+## pi support
+
+The Bash command guardrails above (`no-sleep`, `no-timeout-ssh`, `no-srun`, `herdr-prompt-guard`,
+`no-herdr-wait`, `no-blind-find`, `no-blind-search`, `no-docker-on-login-node`) also apply to pi
+agents via
+[`pi-extensions/bash-guardrails.ts`](pi-extensions/bash-guardrails.ts), a pi extension that
+hooks pi's `tool_call` event (pi's equivalent of Claude Code's `PreToolUse`) and shells out to
+the exact same scripts under `hooks/scripts/`. It reads the Bash-matched script list straight
+out of `hooks/hooks.json` at load time, so a new Claude-side Bash guard applies to pi
+automatically with no separate list to maintain.
+
+Activate it once per machine:
+
+```sh
+bash pi-extensions/install.sh
+```
+
+This symlinks the extension into pi's auto-loaded global extensions directory
+(`~/.pi/agent/extensions/` by default, or `$PI_CODING_AGENT_DIR/extensions` if set) and takes
+effect on the next pi session. Only the Bash-tool guardrails apply this way — the `Read`/
+`Write`/`Edit`/`Agent`/`CronCreate` guards and cron accounting are Claude-Code-specific and
+have no pi equivalent yet.
+
+`herdr-prompt-guard` now blocks every direct `herdr agent prompt` invocation unconditionally
+(not just `--wait`), so pi and Claude Code behave identically here — no gap to document.
+
 ## Tests
 
 Hooks with tests have a `hooks/tests/test-*.sh` that feeds synthetic `tool_input` JSON and
@@ -50,4 +76,10 @@ docker-on-login-node guard). Run one, or all available:
 
 ```sh
 for t in hooks/tests/test-*.sh; do bash "$t"; done
+```
+
+The pi extension has its own test, `pi-extensions/tests/test-bash-guardrails.mjs` (Node 22+):
+
+```sh
+node --experimental-strip-types pi-extensions/tests/test-bash-guardrails.mjs
 ```

@@ -3,10 +3,12 @@
 # (through wrappers and `bash -c` bodies). Both block the caller's own turn until a match/state or
 # --timeout, and --timeout is not reliably enforced (observed hanging well past a stated deadline,
 # requiring manual interruption) -- so even a "bounded" wait is not actually bounded. The agent must
-# stay responsive: run the underlying work with run_in_background and poll with short reads instead
-# (or ScheduleWakeup/CronCreate for a longer interval). `herdr agent prompt ... --wait` is a
-# different invocation (handled by herdr-prompt-guard.sh) and does not match here. No-op outside
-# herdr.
+# stay responsive: on Claude Code, run the underlying work with run_in_background and poll with
+# short reads instead (or ScheduleWakeup/CronCreate for a longer interval); pi has neither
+# primitive, so its reason branch instead steers to the message skill's non-blocking --callback
+# for coordinating with another agent, or a manual short read on a later turn otherwise.
+# `herdr agent prompt ... --wait` is a different invocation (handled by herdr-prompt-guard.sh) and
+# does not match here. No-op outside herdr.
 set -euo pipefail
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scan-guard-lib.sh"
 
@@ -34,4 +36,4 @@ herdr_wait_seg() {
 
 scan_command "$cmd" herdr_wait_seg || exit 0
 
-printf '{"decision":"block","reason":"Do not run `herdr pane wait-output` or `herdr agent wait` directly -- these block your own turn until a match/state (indefinitely without --timeout), and --timeout has been observed not to reliably enforce that deadline either, hanging well past it. Stay responsive instead: run the underlying command with run_in_background:true and poll progress yourself with short `herdr pane read` / `herdr agent read` calls a few seconds to tens of seconds apart, or use ScheduleWakeup/CronCreate for a longer-interval check. Never block waiting on another pane or agent."}'
+printf '{"decision":"block","reason":"Do not run `herdr pane wait-output` or `herdr agent wait` directly -- these block your own turn until a match/state (indefinitely without --timeout), and --timeout has been observed not to reliably enforce that deadline either, hanging well past it. Never block waiting on another pane or agent. On Claude Code: run the underlying command with run_in_background:true and poll progress yourself with short `herdr pane read` / `herdr agent read` calls a few seconds to tens of seconds apart, or use ScheduleWakeup/CronCreate for a longer-interval check. On pi (no background-run flag or scheduler primitive): to coordinate with another agent, use the message skill, sending with `--callback` instead of waiting -- it returns immediately and a reply arrives as your own next incoming turn; for raw pane output with no agent on the other end, there is no automatic wakeup on pi -- just check back with a short `herdr pane read` on your own next turn rather than blocking."}'
