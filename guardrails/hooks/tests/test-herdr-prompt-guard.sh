@@ -31,6 +31,13 @@ blkout=$(run 'herdr agent prompt foo x --wait')
 assert_eq "block payload parses as JSON"       "ok"  "$(valid_json "$blkout")"
 assert_eq "block reason names --callback"      "yes" "$(has "$(printf '%s' "$blkout" | jq -r .reason)" -- '--callback')"
 assert_eq "block reason names the message skill" "yes" "$(has "$(printf '%s' "$blkout" | jq -r .reason)" 'message')"
+assert_eq "block reason points to the command action for raw CLI control" "yes" "$(has "$(printf '%s' "$blkout" | jq -r .reason)" 'command')"
+
+echo "== BLOCK: a raw slash-command sent directly still has no carve-out here =="
+# The guard keeps ONE simple invariant (no direct agent-prompt call, ever); the raw-control escape
+# hatch lives entirely in the message skill's own `command` action, not as an exception in this
+# matcher -- so a bare /model sent directly is blocked exactly like any other direct call.
+assert_eq "herdr agent prompt foo \"/model\" (direct, no carve-out)" "block" "$(decision "$(run 'herdr agent prompt foo "/model"')")"
 
 echo "== BLOCK: plain herdr agent prompt (no --wait) is banned too, not just hinted =="
 plainout=$(run 'herdr agent prompt foo "hi"')
@@ -44,6 +51,7 @@ assert_eq "agent start --timeout (rotation)"   "" "$(run 'herdr agent start --ti
 assert_eq "agent list"                         "" "$(run 'herdr agent list')"
 assert_eq "agent get"                          "" "$(run 'herdr agent get foo')"
 assert_eq "message-skill send --callback"      "" "$(run '/plug/herdr-kit/skills/message/scripts/herdr-message send foo "hi" --callback')"
+assert_eq "message-skill command (raw slash-command escape hatch)" "" "$(run '/plug/herdr-kit/skills/message/scripts/herdr-message command foo "/model"')"
 
 echo "== SILENT allow: a MENTION of the phrase is not an invocation (command-position-aware) =="
 assert_eq "git grep for the phrase"            "" "$(run "git grep 'herdr agent prompt'")"

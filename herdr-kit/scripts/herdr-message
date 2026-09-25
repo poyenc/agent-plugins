@@ -145,11 +145,36 @@ cmd_reply() {
   print_result "$id" "$target"
 }
 
+# A raw, unwrapped delivery of a single bare slash-command (e.g. `/model`, `/clear`, `/compact`)
+# to a target's own CLI -- NOT a message. `send`/`reply` always wrap their text in an envelope
+# (sender identity, message id, optional callback block), which is correct for conversing with a
+# peer agent but would corrupt a slash-command meant to control that peer's interactive session:
+# the target would see the literal envelope text, not execute the command. This action exists
+# specifically so the herdr-agent-prompt guard can keep one simple invariant (block every direct
+# call, no exceptions) while still leaving a narrow, validated escape hatch for CLI control, owned
+# here rather than as a carve-out in the guard's own command-position matcher.
+#
+# Deliberately has NO --callback and accepts no other flags: a raw CLI command has no reply path,
+# and allowing one would blur this action's one job. Exactly two positionals, no exceptions --
+# unlike send/reply's free-form <text> (which may legitimately start with "-"), this command MUST
+# be a single bare slash-command, so requiring $#==2 and then validating its shape both serve the
+# same goal and cannot conflict.
+cmd_command() {
+  guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
+  [ $# -eq 2 ] || die "usage: herdr-message command <target> </slash-command> (no flags, e.g. no --callback)"
+  local target="$1" command="$2"
+  [[ "$command" =~ ^/[^[:space:]]+$ ]] || die "command must be a single bare slash-command (e.g. /model), with no spaces or extra arguments: got '$command'"
+  local err
+  err=$(herdr agent prompt "$target" "$command" 2>&1 >/dev/null) || die "failed to send command to $target${err:+: $err}"
+  jq -nc --arg target "$target" --arg command "$command" '{"sent_to":$target,"command":$command}'
+}
+
 if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
   sub="${1:-}"; shift || true
   case "$sub" in
-    send)  cmd_send "$@" ;;
-    reply) cmd_reply "$@" ;;
-    *) die "usage: herdr-message <send|reply> ..." ;;
+    send)    cmd_send "$@" ;;
+    reply)   cmd_reply "$@" ;;
+    command) cmd_command "$@" ;;
+    *) die "usage: herdr-message <send|reply|command> ..." ;;
   esac
 fi

@@ -110,6 +110,30 @@ out=$(bash "$S/herdr-message" reply wF:p1 abc123 "done" 2>&1); rc=$?
 assert_eq "reply failure with no underlying diagnostic still dies" "1" "$rc"
 assert_eq "reply failure with no underlying diagnostic has no dangling ': ' suffix" "0" "$(printf '%s' "$out" | grep -c ': *$')"
 
+setup
+out=$(bash "$S/herdr-message" command wK:p1 "/model" 2>&1); rc=$?
+assert_eq "command (bare slash-command) exits 0" "0" "$rc"
+assert_eq "command never passes --wait to agent prompt" "0" "$(grep -c -- '--wait' "$MOCK_CALLS")"
+assert_eq "command delivers the raw slash-command byte-for-byte, unwrapped (no [msg-...] envelope)" "1" "$(grep -c 'agent prompt wK:p1 /model$' "$MOCK_CALLS")"
+assert_eq "command output includes sent_to" "1" "$(printf '%s' "$out" | grep -c '"sent_to":"wK:p1"')"
+assert_eq "command output includes the command sent" "1" "$(printf '%s' "$out" | grep -c '"command":"/model"')"
+
+setup
+out=$(bash "$S/herdr-message" command wK:p1 "/model opus" 2>&1); rc=$?
+assert_eq "command rejects a payload with a space (not a bare slash-command)" "1" "$rc"
+assert_eq "rejected payload never reaches agent prompt" "0" "$(grep -c 'agent prompt' "$MOCK_CALLS")"
+
+setup
+out=$(bash "$S/herdr-message" command wK:p1 "please do the thing" 2>&1); rc=$?
+assert_eq "command rejects prose (does not start with /)" "1" "$rc"
+
+setup
+out=$(bash "$S/herdr-message" command wK:p1 "/model" --callback 2>&1); rc=$?
+assert_eq "command rejects --callback (no reply path for a raw CLI command)" "1" "$rc"
+
+( HERDR_ENV=0; bash "$S/herdr-message" command wK:p1 "/model" >/dev/null 2>&1 ); assert_eq "command no-op outside herdr" "0" "$?"
+( HERDR_ENV=1; bash "$S/herdr-message" command wK:p1 >/dev/null 2>&1 ); assert_eq "command missing payload dies" "1" "$?"
+
 ( HERDR_ENV=0; bash "$S/herdr-message" send wK:p1 "x" >/dev/null 2>&1 ); assert_eq "send no-op outside herdr" "0" "$?"
 ( HERDR_ENV=1; bash "$S/herdr-message" send wK:p1 >/dev/null 2>&1 ); assert_eq "send missing text dies" "1" "$?"
 ( HERDR_ENV=1 HERDR_PANE_ID=wF:p1; bash "$S/herdr-message" reply wF:p1 abc123 >/dev/null 2>&1 ); assert_eq "reply missing text dies" "1" "$?"
