@@ -216,13 +216,19 @@ _mutates_home() {
 # shell control keywords) and hand (cmdbase, rest...) to MATCHER_FN. A `bash -c`/`sh -c` body is
 # recursed with the SAME matcher; a shell `-n` (no-exec) among the shell options bails (the body is
 # only syntax-checked, never run). $3 = recursion depth (guards nesting).
+#
+# NOTE: this does NOT call _mutates_home -- that precheck only matters to a caller whose MATCHER_FN
+# itself resolves $HOME/${HOME} as a root (is_root), since a reassigned HOME makes that resolution
+# ambiguous. It has no bearing on command-identity matchers (e.g. is this command literally `herdr`
+# with these arguments?), so callers that DO classify HOME-based roots must call `_mutates_home`
+# themselves before scan_command -- see no-blind-find.sh / no-blind-search.sh. A command-identity
+# caller (e.g. herdr-prompt-guard.sh, no-herdr-wait.sh) must NOT call it.
 scan_command() {
   local s="$1" mfn="$2" depth="${3:-0}" seg
   [ "$depth" -gt 8 ] && return 1
   # Whole-command fail-open prechecks: forms this segment/word framing can't analyze safely.
   _has_heredoc "$s" && return 1
   _has_quoted_newline "$s" && return 1
-  _mutates_home "$s" && return 1
   while IFS= read -r seg; do
     [ -n "$seg" ] || continue
     _scan_segment "$seg" "$mfn" "$depth" && return 0
