@@ -43,5 +43,7 @@ out=$(run 'srun --pty bash')
 assert_eq "block payload parses as JSON" ok "$(valid_json "$out")"
 assert_eq "reason mentions salloc"  yes "$(printf '%s' "$out" | jq -r .reason | grep -qi 'salloc' && echo yes || echo no)"
 assert_eq "reason mentions ssh"     yes "$(printf '%s' "$out" | jq -r .reason | grep -qi 'ssh' && echo yes || echo no)"
+assert_eq "reason mentions sbatch (for long-running work, not just short interactive ssh)" yes "$(printf '%s' "$out" | jq -r .reason | grep -qi 'sbatch' && echo yes || echo no)"
+assert_eq "reason mentions a poll command (squeue/sacct/sstat/seff)" yes "$(printf '%s' "$out" | jq -r .reason | grep -qiE 'squeue|sacct|sstat|seff' && echo yes || echo no)"
 
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
