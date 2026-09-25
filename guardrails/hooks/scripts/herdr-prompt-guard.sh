@@ -1,33 +1,35 @@
 #!/usr/bin/env bash
-# PreToolUse(Bash): govern how agents use `herdr agent prompt` for inter-agent messaging.
-#   - `... --wait`  -> BLOCK: --wait blocks the sender's own turn until the target settles.
-#   - plain prompt  -> ALLOW + hint: a bare send has no reply path; steer toward the message
-#                      skill's --callback when a response is expected.
-# Async messaging belongs to the herdr-kit `message` skill. No-op outside herdr.
+# PreToolUse(Bash): block any direct `herdr agent prompt` invocation (through wrappers and
+# `bash -c` bodies) -- both the blocking `--wait` form and a plain fire-and-forget send routinely
+# leave the sender with no reply path (or, for --wait, stall the sender's own turn). All
+# inter-agent messaging goes through the herdr-kit `message` skill instead, which builds the same
+# underlying call with a reply envelope and never blocks. Uses the shared quote-aware command
+# scanner so only an actual `herdr agent prompt` INVOCATION is matched -- not a mention of those
+# words in a comment, a search, or a message body being sent through the message skill itself.
+# No-op outside herdr.
 set -euo pipefail
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scan-guard-lib.sh"
 
 [ "${HERDR_ENV:-}" = 1 ] || exit 0
 
 cmd=$(jq -r '.tool_input.command // ""')
-
 [ -n "$cmd" ] || exit 0
 
-# Flatten a line-wrapped command onto one line so it can't slip past the single-line matcher:
-# first join shell line-continuations (a trailing backslash-newline, which the shell would
-# splice away), then collapse any remaining newlines to spaces.
-cmd=${cmd//$'\\'$'\n'/}
-cmd=${cmd//$'\n'/ }
+# Is this segment's real command `herdr`, with `agent` immediately followed by `prompt` somewhere
+# among its arguments? That pair is always adjacent in real CLI grammar (`herdr agent prompt ...`).
+agent_prompt_seg() {
+  local cmdbase="$1"; shift
+  [ "$cmdbase" = herdr ] || return 1
+  local -a rest=("$@")
+  local k
+  for (( k=0; k<${#rest[@]}-1; k++ )); do
+    if [ "$(dequote_full "${rest[$k]}")" = agent ] && [ "$(dequote_full "${rest[$((k+1))]}")" = prompt ]; then
+      return 0
+    fi
+  done
+  return 1
+}
 
-# Only act on a `herdr ... agent prompt` invocation; anything else is none of this hook's business.
-echo "$cmd" | grep -qP '\bherdr\b.*\bagent\s+prompt\b' || exit 0
+scan_command "$cmd" agent_prompt_seg || exit 0
 
-# --wait blocks the sender's turn (indefinitely without --timeout). --timeout is NOT matched on
-# its own: it only bounds --wait, and `herdr agent start --timeout` (rotation) never reaches here
-# because it isn't `agent prompt`.
-if echo "$cmd" | grep -qP '(^|\s)--wait(\s|=|$)'; then
-  printf '{"decision":"block","reason":"Do not run `herdr agent prompt --wait`: --wait blocks your own turn until the target agent settles (indefinitely when no --timeout is set), stalling you and everything queued behind you. To reach another agent without blocking, use the herdr-kit `message` skill -- `send` returns immediately, and if you need an answer pass `--callback` so the reply comes back as your own next incoming turn."}'
-else
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","additionalContext":"This `herdr agent prompt` is a fire-and-forget send: it delivers your text but sets up no reply path, so any response the other agent gives will not be routed back to you. If you expect an answer, send it through the herdr-kit `message` skill with `--callback` instead -- the reply then arrives as your own next incoming turn. If you do not need a reply, this bare send is fine."}}'
-fi
-
-exit 0
+printf '{"decision":"block","reason":"Do not run `herdr agent prompt` directly. Use the herdr-kit `message` skill instead -- `send` (or `reply`) builds the same call and returns immediately; add `--callback` when you need a reply routed back to you as your own next incoming turn. A raw `--wait` additionally blocks your own turn until the target settles (indefinitely when no --timeout is set), stalling you and everything queued behind you; a raw plain send has no reply path at all. If you are trying to deliver a bare slash-command (e.g. `/model`) to control the target'\''s own CLI rather than converse with it, use the message skill'\''s `command` action instead -- `send`/`reply` would wrap it in an envelope and corrupt it."}'

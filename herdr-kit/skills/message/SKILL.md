@@ -7,8 +7,9 @@ description: >
   to update, ask, or check in after delegating work, to flag something relevant to another
   agent's task, or to answer a message you were sent. Never blocks: sending returns
   immediately, and a reply (if you asked for one) arrives as your own next incoming turn,
-  the same way any other prompt addressed to your pane does. No-op outside herdr
-  (HERDR_ENV != 1).
+  the same way any other prompt addressed to your pane does. Also covers delivering a bare
+  slash-command (e.g. `/model`) to control a peer's own CLI, unwrapped, when a real message
+  envelope would corrupt it. No-op outside herdr (HERDR_ENV != 1).
 allowed-tools: Bash(*/scripts/herdr-message *), Bash(herdr *)
 ---
 
@@ -60,13 +61,30 @@ threaded reply can ALSO ask for a further response in one call. The requested re
 under the SAME `<message-id>` you are replying to, keeping a multi-round exchange under one
 correlation id.
 
+## Sending a raw CLI command
+
+    <base>/scripts/herdr-message command <target> </slash-command>
+
+For controlling a peer's own CLI -- e.g. `/model`, `/clear`, `/compact` -- not for conversing
+with it. `send`/`reply` always wrap your text in an envelope, which is correct for a message but
+would corrupt a slash-command: the target would see the literal envelope text instead of
+executing the command. `command` delivers the payload byte-for-byte, unwrapped.
+
+- `<target>` -- same as `send`/`reply`.
+- The payload must be a single bare slash-command with no spaces or extra arguments (e.g. `/model`,
+  not `/model opus`) -- anything else is rejected before it is sent.
+- No `--callback`, no other flags: a raw CLI command has no reply path.
+
+Prints `{"sent_to":"<target>","command":"<command>"}` on success.
+
 ## How it works
 
-Both commands build a short text envelope (sender identity, message id, your text, and an
+`send`/`reply` build a short text envelope (sender identity, message id, your text, and an
 optional reply-request block) and send it via a single `herdr agent prompt <target> "..."`
-call -- no `--wait`, no timeout, ever. There is no persisted message store, inbox, or delivery
-confirmation beyond whatever `herdr agent prompt` itself reports; a failed send dies loudly
-rather than reporting success.
+call -- no `--wait`, no timeout, ever. `command` sends the same way but with no envelope at all --
+just the bare slash-command. There is no persisted message store, inbox, or delivery confirmation
+beyond whatever `herdr agent prompt` itself reports; a failed send dies loudly rather than
+reporting success.
 
 ## Known limitations
 
