@@ -29,6 +29,11 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scan-guard-lib.sh"
 cmd=$(jq -r '.tool_input.command // ""')
 [ -n "$cmd" ] || exit 0
 
+# A HOME reassignment anywhere makes a later $HOME/${HOME} root-classification ambiguous (this
+# parser has no per-segment env state) -- fail the whole command open, same class as scan_command's
+# own heredoc/quoted-newline prechecks, but specific to this hook's HOME-based root detection.
+_mutates_home "$cmd" && exit 0
+
 # Split rest into FLAGS[] and positional OPERANDS[] (dropping redirections, honoring --). No arity
 # modeling on purpose: a flag is any leading-"-" token (except a lone "-"); its mere presence may
 # make the tool rule below fail open. Sets FLAGS/OPERANDS in the caller's scope (dynamic scope).

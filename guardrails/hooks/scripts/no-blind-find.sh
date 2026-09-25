@@ -12,6 +12,11 @@ source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scan-guard-lib.sh"
 cmd=$(jq -r '.tool_input.command // ""')
 [ -n "$cmd" ] || exit 0
 
+# A HOME reassignment anywhere makes a later $HOME/${HOME} root-classification ambiguous (this
+# parser has no per-segment env state) -- fail the whole command open, same class as scan_command's
+# own heredoc/quoted-newline prechecks, but specific to this hook's HOME-based root detection.
+_mutates_home "$cmd" && exit 0
+
 # Roots are the leading path operands, up to the first expression token ("-something", "(", "!", …).
 # Pre-path options: -H/-L/-P valueless, -D takes a value, -O<level> attached. Options/expression
 # delimiters are classified on the DEQUOTED token (a quoted/expanded predicate like `find "-newer" /`
