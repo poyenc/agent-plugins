@@ -25,7 +25,7 @@ Root classification (resolving whether an operand is a whole-tree path) is speci
 
 | Hook | Trigger | What it does |
 |------|---------|--------------|
-| **[no-memory-write](hooks/scripts/no-memory-write.sh)** | `PreToolUse` → `Write`/`Edit` | Blocks writes to Claude Code's built-in memory directory. |
+| **[no-memory-access](hooks/scripts/no-memory-access.sh)** | `PreToolUse` → `Read`/`Write`/`Edit` | Blocks all access — read and write — to Claude Code's built-in memory directory. Project memory goes stale as a project's state and decisions change, and since it's injected into context rather than deliberately read, a stale entry skews the agent's judgment without any visible signal that it happened. |
 | **[read-guard](hooks/scripts/read-guard.sh)** | `PreToolUse` → `Read` | Blocks a single `Read` from returning more than a configurable byte budget. |
 | **[no-named-agent](hooks/scripts/no-named-agent.sh)** | `PreToolUse` → `Agent` | Blocks naming a spawned agent (named, SendMessage-addressable agents change coordination semantics). |
 | **[cron-guard](hooks/scripts/cron-guard.sh)** | `PreToolUse` → `CronCreate` | Blocks creating a cron when the agent exceeds the max concurrent count or uses a too-short interval. |
@@ -44,7 +44,8 @@ The cron guard needs a live count of active crons per session; these keep it:
 
 Hooks with tests have a `hooks/tests/test-*.sh` that feeds synthetic `tool_input` JSON and
 asserts the block/allow decision (currently: the read guard, the Herdr prompt guard, the Herdr
-wait guard, the two blind-scan hooks, and the srun guard). Run one, or all available:
+wait guard, the two blind-scan hooks, the srun guard, and the memory-access guard). Run one, or
+all available:
 
 ```sh
 for t in hooks/tests/test-*.sh; do bash "$t"; done
