@@ -1,5 +1,5 @@
 {
-  "description": "Behavioral guardrails: block sleep, block built-in memory writes, warn on 2+ concurrent crons, block named agents, block oversized Read calls, block direct `herdr agent prompt` calls (steer to the message skill), block direct `herdr pane wait-output`/`herdr agent wait`, block whole-tree `find` scans, block plain whole-tree recursive searches (grep -r/rg/fd/ls -R rooted at / or $HOME), block `timeout`-wrapped ssh/scp/sftp and rsync-over-ssh, block `srun` (steer to salloc once + plain ssh per call).",
+  "description": "Behavioral guardrails: block sleep, block built-in memory access (read and write), warn on 2+ concurrent crons, block named agents, block oversized Read calls, block direct `herdr agent prompt` calls (steer to the message skill), block direct `herdr pane wait-output`/`herdr agent wait`, block whole-tree `find` scans, block plain whole-tree recursive searches (grep -r/rg/fd/ls -R rooted at / or $HOME), block `timeout`-wrapped ssh/scp/sftp and rsync-over-ssh, block `srun` (steer to salloc once + plain ssh per call).",
   "hooks": {
     "PreToolUse": [
       {
@@ -49,7 +49,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-memory-write.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-memory-access.sh\""
           }
         ]
       },
@@ -58,13 +58,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-memory-write.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-memory-access.sh\""
           }
         ]
       },
       {
         "matcher": "Read",
         "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-memory-access.sh\""
+          },
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/read-guard.sh\""
