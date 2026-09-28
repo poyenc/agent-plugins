@@ -47,6 +47,18 @@ assert_eq "srun (a different guard's job)"     none "$(blk 'srun --pty bash' 'ct
 assert_eq "mere mention: grep -r docker ."     none "$(blk 'grep -r docker .' 'ctr2-alola-login-04')"
 assert_eq "empty command"                      none "$(blk '' 'ctr2-alola-login-04')"
 
+echo "== ALLOW on a login node: bare wrapper (no options) IS still caught =="
+assert_eq "sudo docker run (no options -- caught)" block "$(blk 'sudo docker run --rm myimage' 'ctr2-alola-login-04')"
+
+echo "== documented accepted miss: a wrapper WITH options fails the whole segment open =="
+# Same class of limitation the blind-scan hooks already document (scan-guard-lib.sh's shared
+# wrapper handling: any option on sudo/env/nice/etc. bails, since it doesn't model which options
+# take a value). Not special-cased here -- documented so the miss is intentional, not invisible.
+assert_eq "sudo -E docker run (wrapper option)" none "$(blk 'sudo -E docker run --rm myimage' 'ctr2-alola-login-04')"
+assert_eq "sudo -u root docker build (wrapper option)" none "$(blk 'sudo -u root docker build -t foo .' 'ctr2-alola-login-04')"
+assert_eq "env -i docker run (wrapper option)" none "$(blk 'env -i docker run --rm myimage' 'ctr2-alola-login-04')"
+assert_eq "nice -n 10 docker run (wrapper option)" none "$(blk 'nice -n 10 docker run --rm myimage' 'ctr2-alola-login-04')"
+
 echo "== block payload is valid JSON and explains the fix =="
 out=$(run 'docker run --rm myimage' 'ctr2-alola-login-04')
 assert_eq "block payload parses as JSON"       ok  "$(valid_json "$out")"
