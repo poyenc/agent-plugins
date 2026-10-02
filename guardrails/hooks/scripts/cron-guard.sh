@@ -29,11 +29,28 @@ cron_expr=$(printf '%s' "$payload" | jq -r '.tool_input.cron // ""')
 if [ -n "$cron_expr" ]; then
   minute_field=$(echo "$cron_expr" | awk '{print $1}')
   interval=60
-  if [ "$minute_field" = "*" ]; then
-    interval=1
-  elif [[ "$minute_field" =~ ^\*/([0-9]+)$ ]]; then
-    interval="${BASH_REMATCH[1]}"
-  fi
+  # A minute field can be a comma-separated list of subfields (e.g.
+  # "1-10/5,20-59/15"), each parsed independently; the effective interval is
+  # the TIGHTEST (smallest) one, since that's how often the cron actually
+  # fires. Scanning only the last subfield (or the whole field as one regex)
+  # would miss a tighter step hiding earlier in the list.
+  IFS=',' read -ra subfields <<< "$minute_field"
+  for sub in "${subfields[@]}"; do
+    if [ "$sub" = "*" ]; then
+      sub_interval=1
+    elif [[ "$sub" =~ /([0-9]+)$ ]]; then
+      # Any step suffix counts, not just a leading bare "*/N" -- step-ranges
+      # like "2-59/5" are the normal way to offset a recurring cron off
+      # :00/:30 and must hit the same interval check, not fall through to
+      # the single-value default below.
+      # Force base-10: a zero-padded step like "08" would otherwise be read
+      # as an invalid octal literal by the arithmetic comparison below.
+      sub_interval=$((10#${BASH_REMATCH[1]}))
+    else
+      sub_interval=60
+    fi
+    (( sub_interval < interval )) && interval=$sub_interval
+  done
 
   if (( interval < min_minutes )); then
     printf '{"decision":"block","reason":"Cron interval is %s minute(s), below the minimum of %s minutes. Use a longer interval to avoid flooding the context window."}\n' \
