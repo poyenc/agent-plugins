@@ -11,6 +11,8 @@ assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); el
 
 mkjson(){ jq -nc --arg c "$1" '{session_id:"t",tool_name:"Bash",tool_input:{command:$c}}'; }
 run(){ printf '%s' "$(mkjson "$1")" | bash "$SCRIPT"; }
+mkjson_cwd(){ jq -nc --arg c "$1" --arg d "$2" '{session_id:"t",tool_name:"Bash",cwd:$d,tool_input:{command:$c}}'; }
+run_cwd(){ printf '%s' "$(mkjson_cwd "$1" "$2")" | bash "$SCRIPT"; }
 decision(){ [ -n "$1" ] || { echo none; return; }; printf '%s' "$1" | jq -r '.decision // "none"' 2>/dev/null; }
 valid_json(){ [ -n "$1" ] || { echo ok; return; }; printf '%s' "$1" | jq -e . >/dev/null 2>&1 && echo ok || echo bad; }
 blk(){ decision "$(run "$1")"; }   # "block" or "none"
@@ -148,5 +150,25 @@ echo "== block payload is valid JSON and explains the fix =="
 out=$(run 'find /')
 assert_eq "block payload parses as JSON" ok "$(valid_json "$out")"
 assert_eq "reason mentions narrowing / asking" yes "$(printf '%s' "$out" | jq -r .reason | grep -qiE 'narrow|specific|ask' && echo yes || echo no)"
+
+echo "== cwd-aware block message =="
+out=$(run_cwd 'find /' '/home/u/project')
+assert_eq "normal cwd: reason shows the real cwd" yes "$(printf '%s' "$out" | jq -r .reason | grep -qF '/home/u/project' && echo yes || echo no)"
+assert_eq "normal cwd: reason directs a dot-relative retry" yes "$(printf '%s' "$out" | jq -r .reason | grep -qE 'find \. ' && echo yes || echo no)"
+
+out=$(run 'find /')
+assert_eq "missing cwd: falls back to the generic narrow/specific/ask wording" yes "$(printf '%s' "$out" | jq -r .reason | grep -qiE 'narrow|specific|ask' && echo yes || echo no)"
+assert_eq "missing cwd: does not claim a concrete cwd" yes "$(printf '%s' "$out" | jq -r .reason | grep -qF 'tool is currently in' && echo no || echo yes)"
+assert_eq "missing cwd: does not suggest a dot-relative retry (unreported cwd could itself be a root)" yes "$(printf '%s' "$out" | jq -r .reason | grep -qE 'find \. ' && echo no || echo yes)"
+
+out=$(run_cwd 'find /' '/')
+assert_eq "cwd is / itself: does not suggest a dot-relative retry" yes "$(printf '%s' "$out" | jq -r .reason | grep -qE 'find \. ' && echo no || echo yes)"
+assert_eq "cwd is / itself: tells the agent to ask the user" yes "$(printf '%s' "$out" | jq -r .reason | grep -qi 'ask the user' && echo yes || echo no)"
+
+out=$(run_cwd 'find /' "$HOME")
+assert_eq 'cwd is $HOME itself: does not suggest a dot-relative retry' yes "$(printf '%s' "$out" | jq -r .reason | grep -qE 'find \. ' && echo no || echo yes)"
+
+out=$(run_cwd 'find /' '/tmp/weird"quote\path')
+assert_eq "cwd containing quotes/backslashes still produces valid JSON" ok "$(valid_json "$out")"
 
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

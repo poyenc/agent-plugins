@@ -300,6 +300,24 @@ _scan_segment() {
 
 # The block-payload reason, shared so both hooks speak with one voice. Built with jq so the quotes
 # and backticks in the text always produce valid JSON.
-BLOCK_REASON='Refusing a recursive scan rooted at the whole filesystem (/) or your entire home directory. A search that broad usually means you do not yet know where to look -- it is slow, and the answer is almost never "everywhere". Narrow it to the specific directory you actually need (the project/repo/cwd, e.g. `find . -name X` or `grep -r X src/`), or ask the user where to look. If a genuinely system-wide search is truly required, run it yourself outside the agent.'
+#
+# emit_block takes the hook payload's reported cwd (may be empty) and picks one of three forms:
+#  - cwd unknown/empty: a `.`-relative retry is NOT offered -- an unreported cwd might itself be a
+#    whole-tree root (e.g. pi's bridge never reports cwd at all), and `.` isn't classified by
+#    is_root, so a retry on it would silently repeat the same whole-tree scan undetected.
+#  - cwd is itself a whole-tree root (reuses is_root -- same root definition as command operands):
+#    `find .`/`grep ... .` would scan just as broadly, so don't suggest it; tell the agent to ask.
+#  - otherwise: lead with the concrete `.`-relative retry and show the real cwd for orientation.
+BLOCK_REASON_GENERIC='Refusing a recursive scan rooted at the whole filesystem (/) or your entire home directory. A search that broad usually means you do not yet know where to look -- it is slow, and the answer is almost never "everywhere". Narrow it to the specific directory you actually need, or ask the user where to look. If a genuinely system-wide search is truly required, run it yourself outside the agent.'
 
-emit_block() { jq -nc --arg r "$BLOCK_REASON" '{decision:"block",reason:$r}'; }
+emit_block() {
+  local cwd="${1:-}" reason
+  if [ -z "$cwd" ]; then
+    reason="$BLOCK_REASON_GENERIC"
+  elif is_root "$cwd"; then
+    reason="Refusing a recursive scan rooted at the whole filesystem (/) or your entire home directory. The tool's own working directory (\`$cwd\`) is itself a whole-tree root, so \`find .\`/\`grep ... .\` here would scan just as broadly -- do not use \`.\` as a substitute. Ask the user which directory to search instead of broadening the scan. A truly system-wide search should be run by the user themselves, outside the agent."
+  else
+    reason="Refusing a recursive scan rooted at the whole filesystem (/) or your entire home directory. Retry from the tool's working directory: \`find . -name X\` or \`grep -r X .\` (this tool is currently in \`$cwd\`). Do not scan \`/\`, \`~\`, or \`\$HOME\`. If that directory is not the project you need, ask the user where to look instead of broadening the search. A truly system-wide search should be run by the user themselves, outside the agent."
+  fi
+  jq -nc --arg r "$reason" '{decision:"block",reason:$r}'
+}
