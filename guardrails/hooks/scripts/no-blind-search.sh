@@ -26,7 +26,8 @@
 set -euo pipefail
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/scan-guard-lib.sh"
 
-cmd=$(jq -r '.tool_input.command // ""')
+payload=$(cat)
+cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')
 [ -n "$cmd" ] || exit 0
 
 # A HOME reassignment anywhere makes a later $HOME/${HOME} root-classification ambiguous (this
@@ -102,4 +103,5 @@ search_seg() {
 }
 
 scan_command "$cmd" search_seg || exit 0
-emit_block
+cwd=$(printf '%s' "$payload" | jq -r '.cwd // ""')
+emit_block "$cwd"
