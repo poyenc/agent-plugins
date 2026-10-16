@@ -366,4 +366,124 @@ assert_eq "seen=0 model miss dumps the /model render even though the footer neve
   "$(grep -c 'detect_override miss: claude /model' "$CLDIAG_ERR2")"
 rm -f "$CLDIAG_ERR" "$CLDIAG_ERR2"
 
+# Regression for a live-reproduced bug: at narrower pane widths (confirmed live at 59 columns)
+# the real /model footer wraps across TWO separate rendered lines, splitting "Enter to set as
+# default · s to use this session only ·" from "Esc to cancel" below it -- a footer check that
+# requires both phrases on the SAME line never sees this as settled, the poll times out, and the
+# marked-row extraction below it (which would have succeeded) never even runs. Byte-for-byte the
+# same SCREEN_MODEL fixture as the top of this file, except its final line is split in two.
+STAGE=""
+SCREEN_MODEL_WRAPPED_FOOTER=$'  Select model\n  Switch between Claude models. Your pick becomes the default for new sessions.\n\n    1. Default (recommended)  Use the default model (currently Opus 5 (1M context))\n    2. Claude-Opus-5[1m]      Custom Opus model (1M context)\n  \xe2\x9d\xaf 3. Claude-Sonnet-5[1m] \xe2\x9c\x94  Custom Sonnet model (1M context)\n    4. Claude-Haiku-4.5       Custom Haiku model\n\n  \xe2\x97\x90 Medium effort \xe2\x86\x90/\xe2\x86\x92 to adjust\n\n  Enter to set as default \xc2\xb7 s to use this session only \xc2\xb7\n  Esc to cancel'
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) printf '%s' "$SCREEN_MODEL_WRAPPED_FOOTER" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+ROTATE_DETECT_POLL_SECS=1
+detect_override wG:p4
+assert_eq "wrapped two-line footer still settles and model is recovered (not an empty miss)" "claude-sonnet-5[1m]" "$DETECTED_MODEL"
+assert_eq "wrapped two-line footer: effort is still recovered too" "medium" "$DETECTED_EFFORT"
+
+# Regression for the gap this wrap-tolerance could otherwise reopen: second_to_last_nonblank_line
+# must only drop TRAILING blank padding, not every blank line, or a stale "Enter to set as
+# default" sitting above an interior blank line could pair with a fresh, unrelated "Esc to cancel"
+# below it and falsely settle. Same SCREEN_MODEL fixture, but with a blank line inserted between
+# the two footer phrases -- the real (unwrapped-or-wrapped) footer never has one, so this must
+# miss, exactly like SCREEN_MODEL_NO_FOOTER above.
+STAGE=""
+SCREEN_MODEL_STALE_GAP=$'  Select model\n  Switch between Claude models. Your pick becomes the default for new sessions.\n\n    1. Default (recommended)  Use the default model (currently Opus 5 (1M context))\n    2. Claude-Opus-5[1m]      Custom Opus model (1M context)\n  \xe2\x9d\xaf 3. Claude-Sonnet-5[1m] \xe2\x9c\x94  Custom Sonnet model (1M context)\n    4. Claude-Haiku-4.5       Custom Haiku model\n\n  \xe2\x97\x90 Medium effort \xe2\x86\x90/\xe2\x86\x92 to adjust\n\n  Enter to set as default \xc2\xb7 s to use this session only \xc2\xb7\n\n  Esc to cancel'
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) printf '%s' "$SCREEN_MODEL_STALE_GAP" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+ROTATE_DETECT_POLL_SECS=1
+CLDIAG_ERR3=$(mktemp)
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wG:p4 2>"$CLDIAG_ERR3"
+assert_eq "footer phrases separated by a blank line must NOT settle (stale-pairing guard)" "" "$DETECTED_MODEL"
+assert_eq "gapped footer dumps a miss diagnostic, same as no-footer-at-all" "1" \
+  "$(grep -c 'detect_override miss: claude /model' "$CLDIAG_ERR3")"
+rm -f "$CLDIAG_ERR3"
+
+# Regression for a second, DIFFERENT live-reproduced miss (two real captures: panes wX:p1 and
+# wX:p12, from genuinely failed self-rotations, not synthetic fixtures): at width 59, a marked
+# row's OWN description can wrap onto its own continuation line, separate from the ❯/✔ marker
+# line -- this happens whenever the row's primary label is a display name ("Opus 5 (1M context)")
+# rather than the raw identifier, which pushes the real "(Claude-...[...])" parenthetical past the
+# line width. A row capture scoped to only the single marker line has nothing to extract on that
+# line and misses, even though the footer settled fine and the picker rendered correctly.
+STAGE=""
+SCREEN_MODEL_ROW_WRAPPED=$'  Select model\n  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.\n\n    1. Default (recommended)  Use the default model (currently Opus 5 (1M context)) \xc2\xb7 $5/$25 per Mtok\n  \xe2\x9d\xaf 2. Opus 5 (1M context) \xe2\x9c\x94  Custom Opus model\n                              (Claude-Opus-5[1m])\n    3. Fable                  Fable 5.1 \xc2\xb7 Most capable for your hardest and longest-running tasks \xc2\xb7 $10/$50 per Mtok\n    4. Sonnet 5               Custom Sonnet model\n                              (Claude-Sonnet-5[1m])\n    5. Claude-Haiku-4.5       Custom Haiku model\n\n  \xe2\x97\x90 High effort (default) \xe2\x86\x90/\xe2\x86\x92 to adjust\n\n  Enter to set as default \xc2\xb7 s to use this session only \xc2\xb7\n  Esc to cancel'
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) printf '%s' "$SCREEN_MODEL_ROW_WRAPPED" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+ROTATE_DETECT_POLL_SECS=1
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wX:p1
+assert_eq "marked row's own identifier, wrapped onto a continuation line, is still recovered" "claude-opus-5[1m]" "$DETECTED_MODEL"
+assert_eq "effort is still recovered alongside the wrapped row" "high" "$DETECTED_EFFORT"
+
+# Same bug, second real capture: the marker lands on a DIFFERENT row (4, Sonnet) than the one with
+# the longer display name (2, Opus) -- confirms the fix isn't accidentally keyed to a specific row
+# number or model family, only to "whichever row is marked wraps its own identifier down a line".
+STAGE=""
+SCREEN_MODEL_ROW_WRAPPED_OTHER_ROW=$'  Select model\n  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.\n\n    1. Default (recommended)  Use the default model (currently Opus 5 (1M context)) \xc2\xb7 $5/$25 per Mtok\n    2. Opus 5 (1M context)    Custom Opus model\n                              (Claude-Opus-5[1m])\n    3. Fable                  Fable 5.1 \xc2\xb7 Most capable for your hardest and longest-running tasks \xc2\xb7 $10/$50 per Mtok\n  \xe2\x9d\xaf 4. Sonnet 5 \xe2\x9c\x94             Custom Sonnet model\n                              (Claude-Sonnet-5[1m])\n    5. Claude-Haiku-4.5       Custom Haiku model\n\n  \xe2\x97\x90 High effort (default) \xe2\x86\x90/\xe2\x86\x92 to adjust\n\n  Enter to set as default \xc2\xb7 s to use this session only \xc2\xb7\n  Esc to cancel'
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) printf '%s' "$SCREEN_MODEL_ROW_WRAPPED_OTHER_ROW" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+ROTATE_DETECT_POLL_SECS=1
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wX:p12
+assert_eq "row-wrap fix generalizes to a marked row other than row 2" "claude-sonnet-5[1m]" "$DETECTED_MODEL"
+
+# Regression for a THIRD live-reproduced miss (pane wV:p1T, this session, caught live by rotating
+# a throwaway test agent): a model pinned via a prior rotation's own --model value gets its own
+# synthetic row in the picker, separate from the catalog's row 2 for the same model -- and its
+# description ("Best for everyday, complex tasks") is long enough to wrap across TWO continuation
+# lines before the identifier parenthetical even starts, one more than the previous regression
+# needed. That parenthetical is also lowercase ("claude-opus-4.8[1m]", the literal --model value
+# passed at launch) where the catalog's own row 2 is capitalized ("Claude-Opus-4.8[1m]") -- a
+# case-sensitive match would miss this row even with the wrap handled.
+STAGE=""
+SCREEN_MODEL_MULTILINE_WRAP=$'  Select model\n  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names, specify with --model.\n\n    1. Default (recommended)  Use the default model (currently Opus 4 (1M context)) \xc2\xb7 $15/$75 per Mtok\n    2. Claude-Opus-4.8[1m]    Custom Opus model (1M context)\n    3. Fable                  Fable 5.1 \xc2\xb7 Most capable for your hardest and longest-running tasks \xc2\xb7 $10/$50 per Mtok\n    4. Sonnet 5               Custom Sonnet model\n                              (Claude-Sonnet-5[1m])\n    5. Claude-Haiku-4.5       Custom Haiku model\n  \xe2\x9d\xaf 6. Opus 4 \xe2\x9c\x94               Best for everyday, complex\n                              tasks\n                              (claude-opus-4.8[1m])\n\n  \xe2\x97\x8b Effort not supported for Opus 4\n\n  Enter to set as default \xc2\xb7 s to use this session only \xc2\xb7\n  Esc to cancel'
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) printf '%s' "$SCREEN_MODEL_MULTILINE_WRAP" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+ROTATE_DETECT_POLL_SECS=1
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wV:p1T
+assert_eq "two-line description wrap + lowercase identifier is still recovered" "claude-opus-4.8[1m]" "$DETECTED_MODEL"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]

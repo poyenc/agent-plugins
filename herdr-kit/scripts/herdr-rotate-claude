@@ -21,6 +21,27 @@ last_nonblank_line() {
   printf '%s' "$1" | grep -v '^[[:space:]]*$' | tail -n1 || true
 }
 
+# Returns the line immediately ABOVE the bottommost non-blank line of $1 -- paired with
+# last_nonblank_line by detect_override's /model readiness gate below to tolerate a fixed footer
+# phrase wrapping onto two separate rendered lines at narrower pane widths (confirmed live at 59
+# columns: the real "Enter to set as default · s to use this session only · Esc to cancel" footer
+# wraps there, splitting "Enter to set as default" onto its own line directly above "Esc to
+# cancel"). Only trailing blank PADDING is dropped before picking that line -- unlike
+# last_nonblank_line, which can safely skip every blank line because it only needs one bottommost
+# real line, this helper must stay pinned to the exact physical predecessor of that line: blanket-
+# skipping interior blanks here would let a stale line several rows up pair with a fresh marker
+# line below it, which is the exact stale-data failure this gate exists to prevent.
+second_to_last_nonblank_line() {
+  printf '%s' "$1" | awk '
+    { lines[NR] = $0 }
+    END {
+      n = NR
+      while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+      if (n >= 2) print lines[n-1]
+    }
+  ' || true
+}
+
 # Sends Esc (re-sent each round) and polls until the marker is no longer visible before
 # returning 0 -- confirmed live that agent_status is NOT a reliable close signal here: /status
 # never transitions it to "blocked" at all (confirmed live: `herdr agent wait --until blocked`
@@ -149,25 +170,66 @@ detect_override() {
   seen=0; deadline=$(( SECONDS + ${ROTATE_DETECT_POLL_SECS:-10} ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     out=$(herdr pane read "$pane" --source visible --lines 20 2>/dev/null || true)
-    # Scoped to the last non-blank line, same as close_modal's own marker check -- an unrelated
+    # Anchored on the last non-blank line, same as close_modal's own marker check -- an unrelated
     # or STALE footer earlier in scrollback (e.g. a prior turn's leftover confirmation line)
-    # would otherwise make this fire before the fresh modal has actually rendered. Requires BOTH
-    # footer phrases on that one line -- the real /model footer is always a single line carrying
-    # both ("Enter to set as default ... Esc to cancel"), so requiring both together is a
-    # stronger, still-always-true signal than either alone.
-    local footer; footer=$(last_nonblank_line "$out")
-    if printf '%s' "$footer" | grep -q 'Enter to set as default' && printf '%s' "$footer" | grep -q 'Esc to cancel'; then
-      seen=1; break
+    # would otherwise make this fire before the fresh modal has actually rendered, or after it's
+    # already gone (confirmed by the "stale marked row not on the readiness gate's own screen"
+    # test: a real shell prompt as the actual last line, with a stale footer sitting above it,
+    # must NOT count). CLAUDE_MODAL_MARKER ("Esc to cancel") must be on that exact bottommost
+    # line. "Enter to set as default" is checked against EITHER that same line (the unwrapped
+    # form) OR the line directly above it (confirmed live at 59 columns: the real footer,
+    # "Enter to set as default · s to use this session only · Esc to cancel", wraps there,
+    # landing "Esc to cancel" alone on the bottommost line with the rest of the footer on the
+    # line just above) -- never further up than that, so a stale/unrelated earlier occurrence of
+    # either phrase still can't combine with a genuine one to falsely read as "fresh".
+    local footer_last; footer_last=$(last_nonblank_line "$out")
+    if printf '%s' "$footer_last" | grep -qF "$CLAUDE_MODAL_MARKER"; then
+      if printf '%s' "$footer_last" | grep -q 'Enter to set as default'; then
+        seen=1; break
+      fi
+      local footer_prev; footer_prev=$(second_to_last_nonblank_line "$out")
+      if printf '%s' "$footer_prev" | grep -q 'Enter to set as default'; then
+        seen=1; break
+      fi
     fi
     command sleep 1
   done
   if [ "$seen" = 1 ]; then
     # The currently-selected row is the one marked with BOTH ❯ (cursor) and ✔ (checkmark) --
-    # tail -n1 picks the newest (bottommost) such line, same reasoning as the effort extraction
-    # below: a stale mention of both characters together elsewhere in scrollback would otherwise
-    # win under head -n1.
+    # the LAST such line wins, same reasoning as the effort extraction below: a stale mention of
+    # both characters together elsewhere in scrollback would otherwise win under the first match.
+    # Also appends however many physical lines directly below it belong to the SAME row's
+    # wrapped description, stopping at the first blank line or the start of a new numbered row
+    # ("  2. ..." / "❯ 2. ..."): live-reproduced at width 59, in both a genuine failed
+    # self-rotation (panes wX:p1 and wX:p12, real captures, not synthetic fixtures -- one extra
+    # line needed there) and a second live capture in THIS session (a model pinned via a prior
+    # rotation's own --model, whose description -- "Best for everyday, complex tasks" -- itself
+    # wraps before its identifier parenthetical even starts, needing TWO extra lines) that the
+    # row's own description, which is exactly where the real "Claude-...[...]" identifier sits
+    # whenever the row's primary label is a display name instead (see below), can wrap across a
+    # VARIABLE number of continuation lines depending on how long that description is -- a fixed
+    # one-line lookahead missed the second live case. The new-row/blank-line stop matters: without
+    # it, a marked row that does NOT wrap (e.g. the Default row, whose own line is always
+    # self-contained) would instead swallow the START of the following numbered row and extract
+    # ITS identifier instead -- confirmed by a pre-existing fixture (Default row marked, followed
+    # immediately by a real "2. Claude-Sonnet-5[1m]..." row) that this guard is required to keep
+    # passing. Capped at 3 extra lines so this can't run away into unrelated screen content below
+    # an unusually short row -- every real wrap observed so far needed at most 2.
     local row name
-    row=$(printf '%s' "$out" | grep -E '❯.*✔' | tail -n1) || true
+    row=$(printf '%s' "$out" | awk '
+      /❯/ && /✔/ { n = NR }
+      { lines[NR] = $0 }
+      END {
+        if (n) {
+          print lines[n]
+          for (i = n+1; i <= NR && i <= n+3; i++) {
+            if (lines[i] ~ /^[[:space:]]*$/) break
+            if (lines[i] ~ /^[[:space:]]*(❯[[:space:]]*)?[0-9]+\./) break
+            print lines[i]
+          }
+        }
+      }
+    ') || true
     # Prefer the row's OWN specific model identifier (e.g. "Claude-Sonnet-5[1m]") over its
     # generic "Custom X model" description: the description only names the family ("Sonnet"),
     # which can't distinguish between two dated versions of the same family (e.g. Sonnet 4.5 vs
@@ -189,8 +251,13 @@ detect_override() {
     # that had opted into the larger context window back to the default window, with no error
     # of any kind. Passing a concrete identifier also bypasses ANTHROPIC_DEFAULT_OPUS_MODEL-style
     # alias resolution entirely, so there is no other route back to the intended window once this
-    # suffix is lost.
-    name=$(printf '%s' "$row" | grep -oE 'Claude-[A-Za-z0-9._-]+(\[[A-Za-z0-9._-]+\])?' | head -n1) || true
+    # suffix is lost. Matched case-INsensitively (-i): confirmed live that a model pinned via a
+    # prior rotation's own --model value echoes back in its OWN picker row as a lowercase
+    # "claude-..." parenthetical (the exact casing of whatever was last passed to --model),
+    # distinct from the capitalized "Claude-..." the picker's own built-in catalog entries use --
+    # a case-sensitive match found the latter but silently missed the former. Casing of the
+    # extracted value doesn't matter either way: DETECTED_MODEL is lowercased below regardless.
+    name=$(printf '%s' "$row" | grep -oiE 'Claude-[A-Za-z0-9._-]+(\[[A-Za-z0-9._-]+\])?' | head -n1) || true
     # The Default row has no such identifier column of its own -- its description instead reads
     # "Use the default model (currently Opus 5 (1M context))", so fall back to the family name
     # named there (still generic, since that's all the UI itself ever shows for this row). This
