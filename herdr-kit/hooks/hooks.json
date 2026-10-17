@@ -1,0 +1,16 @@
+{
+  "description": "Herdr-only hooks: remind (never block) the orchestrator agent to delegate instead of doing work itself.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/orchestrator-delegate-reminder.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
