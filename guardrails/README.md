@@ -58,11 +58,28 @@ Activate it once per machine:
 bash pi-extensions/install.sh
 ```
 
-This symlinks the extension into pi's auto-loaded global extensions directory
+This symlinks the extensions into pi's auto-loaded global extensions directory
 (`~/.pi/agent/extensions/` by default, or `$PI_CODING_AGENT_DIR/extensions` if set) and takes
-effect on the next pi session. Only the Bash-tool guardrails apply this way — the `Read`/
-`Write`/`Edit`/`Agent`/`CronCreate` guards and cron accounting are Claude-Code-specific and
-have no pi equivalent yet.
+effect on the next pi session. Apart from the Bash-tool guardrails and the schedule guard
+below, the `Read`/`Write`/`Edit`/`Agent` guards are Claude-Code-specific and have no pi
+equivalent yet.
+
+### Scheduled prompts
+
+[`pi-extensions/schedule-prompt-guard.ts`](pi-extensions/schedule-prompt-guard.ts) gives the
+`schedule_prompt` tool (the `pi-schedule-prompt` package) the same limits
+[cron-guard](hooks/scripts/cron-guard.sh) enforces on `CronCreate`, with the same environment
+variables: a minimum interval between runs (`GUARDRAILS_MIN_CRON_MINUTES`, default 5) and a
+maximum number of concurrent enabled recurring jobs in the session (`GUARDRAILS_MAX_CRONS`,
+default 1). A recurring job (`type` `cron` or `interval`) plays the role of `CronCreate`; a
+one-shot job (`type` `once`) plays the role of `ScheduleWakeup` — always allowed and never
+counted, where cron-guard bans a one-shot `CronCreate` because that alternative exists.
+
+It checks `add` (interval and count), `update` with a new schedule (interval) and `enable` of a
+recurring job (its stored schedule's interval, and count), so neither limit can be bypassed by editing or re-enabling a job. Sibling calls that pi runs in parallel are counted too, until their result arrives, so two adds in one step cannot both slip under the cap. Jobs
+are read from `<cwd>/.pi/schedule-prompts.json` on every call; a missing or unreadable store, or
+a schedule it cannot parse, fails open. For a cron schedule only the seconds and minutes fields
+are read to find the tightest gap between runs.
 
 `herdr-prompt-guard` now blocks every direct `herdr agent prompt` invocation unconditionally
 (not just `--wait`), so pi and Claude Code behave identically here — no gap to document.
@@ -78,8 +95,8 @@ docker-on-login-node guard). Run one, or all available:
 for t in hooks/tests/test-*.sh; do bash "$t"; done
 ```
 
-The pi extension has its own test, `pi-extensions/tests/test-bash-guardrails.mjs` (Node 22+):
+The pi extensions have their own tests under `pi-extensions/tests/` (Node 22+):
 
 ```sh
-node --experimental-strip-types pi-extensions/tests/test-bash-guardrails.mjs
+for t in pi-extensions/tests/test-*.mjs; do node --experimental-strip-types "$t"; done
 ```
