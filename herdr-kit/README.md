@@ -19,6 +19,14 @@ place.
 | **[rotate](skills/rotate/SKILL.md)** | Rotate ANOTHER running herdr agent (claude, pi, or codex) in place: checkpoint its context to a handoff document, then exit and relaunch it in the same pane with its launch flags replayed. Two-step, agent-in-the-loop (handoff, then finish after the ping arrives); requires herdr. Cannot rotate the calling agent's own pane — use `/rotate-self`. |
 | **[message](skills/message/SKILL.md)** | Send a non-blocking, asynchronous message to another herdr agent, or reply to one. Never blocks — sending returns immediately, and a reply (if requested) arrives as your own next incoming turn. |
 
+## Hooks
+
+Claude Code hooks, wired in [`hooks/hooks.json`](hooks/hooks.json); each is a no-op outside herdr (`HERDR_ENV` != 1).
+
+| Hook | Trigger | What it does |
+|------|---------|--------------|
+| **[orchestrator-delegate-reminder](hooks/scripts/orchestrator-delegate-reminder.sh)** | `PreToolUse` → `Bash`/`Agent` | Never blocks. In an orchestrator session only, adds a reminder to delegate the work to a worker first and do directly only small preparation. A session counts as the orchestrator when herdr reports its `claude` process was launched with `--system-prompt-file <path containing "orchestrator">` (read via `herdr pane process-info`). Calls made from inside a subagent (`agent_id` present) get no reminder. Fails silent if herdr or its output is unavailable. |
+
 ## Commands
 
 `rotate-self` is deliberately NOT a general model-invocable skill — restarting *yourself* on your
