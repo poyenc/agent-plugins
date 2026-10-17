@@ -25,7 +25,7 @@ Claude Code hooks, wired in [`hooks/hooks.json`](hooks/hooks.json); each is a no
 
 | Hook | Trigger | What it does |
 |------|---------|--------------|
-| **[orchestrator-delegate-reminder](hooks/scripts/orchestrator-delegate-reminder.sh)** | `PreToolUse` → `Bash`/`Agent` | Never blocks. In an orchestrator session only, adds a reminder to delegate the work to a worker first and do directly only small preparation. A session counts as the orchestrator when herdr reports its `claude` process was launched with `--system-prompt-file <path containing "orchestrator">` (read via `herdr pane process-info`). Calls made from inside a subagent (`agent_id` present) get no reminder. Fails silent if herdr or its output is unavailable. |
+| **[orchestrator-delegate-reminder](hooks/scripts/orchestrator-delegate-reminder.sh)** | `SessionStart` | Never blocks. In an orchestrator session only, adds a reminder once at session start (startup, resume, clear, compact) to delegate the work to a worker first and do directly only small preparation. A session counts as the orchestrator when herdr reports its `claude` process was launched with `--system-prompt-file <path containing "orchestrator">` (read via `herdr pane process-info`). Fails silent if herdr or its output is unavailable. |
 
 ## Commands
 
