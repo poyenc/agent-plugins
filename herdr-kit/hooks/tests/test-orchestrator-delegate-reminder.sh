@@ -5,9 +5,8 @@ SCRIPT="$HERE/../scripts/orchestrator-delegate-reminder.sh"
 PASS=0; FAIL=0
 assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; echo "    exp:[$2] act:[$3]"; FAIL=$((FAIL+1)); fi; }
 
-BASH_PAYLOAD='{"tool_name":"Bash","tool_input":{"command":"ls"}}'
-AGENT_PAYLOAD='{"tool_name":"Agent","tool_input":{"prompt":"x"}}'
-SUBAGENT_PAYLOAD='{"tool_name":"Bash","tool_input":{"command":"ls"},"agent_id":"a1b2","agent_type":"Explore"}'
+START_PAYLOAD='{"hook_event_name":"SessionStart","source":"startup"}'
+RESUME_PAYLOAD='{"hook_event_name":"SessionStart","source":"resume"}'
 
 # A stub `herdr` on PATH answers `pane process-info` with the JSON in $FIXTURE (or fails when
 # FIXTURE is unset), so each case controls exactly what the pane's process looks like.
@@ -33,61 +32,54 @@ run() {
   env PATH="$BIN:$PATH" HERDR_ENV=1 HERDR_PANE_ID=w1:p1 FIXTURE="$fixture" "$@" \
     bash -c 'printf "%s" "$1" | bash "$2"' _ "$payload" "$SCRIPT"
 }
-ctx() { printf '%s' "$1" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null; }
-event() { printf '%s' "$1" | jq -r '.hookSpecificOutput.hookEventName // ""' 2>/dev/null; }
-decision() { printf '%s' "$1" | jq -r '.decision // .hookSpecificOutput.permissionDecision // "none"' 2>/dev/null; }
+# 1 when the hook printed the reminder as plain text, else 0.
+reminded() { printf '%s' "$1" | grep -c '^Orchestrator reminder: delegate work to a worker first'; }
 
 ORCH=$(proc claude claude --dangerously-skip-permissions --system-prompt-file /x/agents/orchestrator/system-prompt.md)
 
 echo "== orchestrator session =="
-out=$(run "$BASH_PAYLOAD" "$ORCH"); rc=$?
-assert_eq "Bash call: exits 0" "0" "$rc"
-assert_eq "Bash call: emits a PreToolUse reminder" "PreToolUse" "$(event "$out")"
-assert_eq "Bash call: reminder mentions delegating" "1" "$(ctx "$out" | grep -c 'delegate')"
-assert_eq "Bash call: never blocks" "none" "$(decision "$out")"
-out=$(run "$AGENT_PAYLOAD" "$ORCH")
-assert_eq "Agent call: emits the reminder too" "PreToolUse" "$(event "$out")"
-out=$(run "$BASH_PAYLOAD" "$(proc claude claude --system-prompt-file /other/dir/orchestrator/system-prompt.md)")
-assert_eq "custom base path still matches" "PreToolUse" "$(event "$out")"
-out=$(run "$BASH_PAYLOAD" "$(proc claude claude --system-prompt-file /x/prompts/my-orchestrator-v2.md)")
-assert_eq "any path containing 'orchestrator' matches, not only .../orchestrator/system-prompt.md" "PreToolUse" "$(event "$out")"
-out=$(run "$BASH_PAYLOAD" "$(proc claude claude --system-prompt-file=/x/agents/orchestrator/system-prompt.md)")
-assert_eq "--system-prompt-file=<path> form matches" "PreToolUse" "$(event "$out")"
-
-echo "== orchestrator's own workers =="
-out=$(run "$SUBAGENT_PAYLOAD" "$ORCH"); rc=$?
-assert_eq "subagent call (agent_id present): exits 0" "0" "$rc"
-assert_eq "subagent call (agent_id present): no output" "" "$out"
+out=$(run "$START_PAYLOAD" "$ORCH"); rc=$?
+assert_eq "startup: exits 0" "0" "$rc"
+assert_eq "startup: prints the reminder as plain text" "1" "$(reminded "$out")"
+assert_eq "startup: output is a single plain-text line (no JSON)" "1" "$(printf '%s\n' "$out" | wc -l)"
+out=$(run "$RESUME_PAYLOAD" "$ORCH")
+assert_eq "resume: emits the reminder again" "1" "$(reminded "$out")"
+out=$(run "$START_PAYLOAD" "$(proc claude claude --system-prompt-file /other/dir/orchestrator/system-prompt.md)")
+assert_eq "custom base path still matches" "1" "$(reminded "$out")"
+out=$(run "$START_PAYLOAD" "$(proc claude claude --system-prompt-file /x/prompts/my-orchestrator-v2.md)")
+assert_eq "any path containing 'orchestrator' matches, not only .../orchestrator/system-prompt.md" "1" "$(reminded "$out")"
+out=$(run "$START_PAYLOAD" "$(proc claude claude --system-prompt-file=/x/agents/orchestrator/system-prompt.md)")
+assert_eq "--system-prompt-file=<path> form matches" "1" "$(reminded "$out")"
 
 echo "== other sessions =="
-out=$(run "$BASH_PAYLOAD" "$(proc claude claude --system-prompt-file /x/agents/implementer/system-prompt.md)"); rc=$?
+out=$(run "$START_PAYLOAD" "$(proc claude claude --system-prompt-file /x/agents/implementer/system-prompt.md)"); rc=$?
 assert_eq "other agent role: exits 0" "0" "$rc"
 assert_eq "other agent role: no output" "" "$out"
-out=$(run "$BASH_PAYLOAD" "$(proc claude claude --dangerously-skip-permissions)")
+out=$(run "$START_PAYLOAD" "$(proc claude claude --dangerously-skip-permissions)")
 assert_eq "plain session, no --system-prompt-file: no output" "" "$out"
 
 echo "== argv matching is exact =="
-out=$(run "$BASH_PAYLOAD" "$(proc claude claude /x/agents/orchestrator/system-prompt.md)")
+out=$(run "$START_PAYLOAD" "$(proc claude claude /x/agents/orchestrator/system-prompt.md)")
 assert_eq "bare path element without the flag before it does not match" "" "$out"
-out=$(run "$BASH_PAYLOAD" "$(proc claude claude "cd /tmp && P=/x/agents/orchestrator/system-prompt.md")")
+out=$(run "$START_PAYLOAD" "$(proc claude claude "cd /tmp && P=/x/agents/orchestrator/system-prompt.md")")
 assert_eq "path inside a larger argv element does not match" "" "$out"
-out=$(run "$BASH_PAYLOAD" "$(proc claude claude --system-prompt-file)")
+out=$(run "$START_PAYLOAD" "$(proc claude claude --system-prompt-file)")
 assert_eq "flag as the last element (no value) does not match or crash" "" "$out"
 
 echo "== only the claude process counts =="
-out=$(run "$BASH_PAYLOAD" "$(proc bash bash --system-prompt-file /x/agents/orchestrator/system-prompt.md)")
+out=$(run "$START_PAYLOAD" "$(proc bash bash --system-prompt-file /x/agents/orchestrator/system-prompt.md)")
 assert_eq "non-claude process carrying the orchestrator argv: no output" "" "$out"
 
 echo "== herdr-only, fails silent =="
-out=$(run "$BASH_PAYLOAD" "$ORCH" HERDR_ENV=0); rc=$?
+out=$(run "$START_PAYLOAD" "$ORCH" HERDR_ENV=0); rc=$?
 assert_eq "HERDR_ENV != 1: exits 0" "0" "$rc"
 assert_eq "HERDR_ENV != 1: no output" "" "$out"
-out=$(run "$BASH_PAYLOAD" "$ORCH" HERDR_PANE_ID=); rc=$?
+out=$(run "$START_PAYLOAD" "$ORCH" HERDR_PANE_ID=); rc=$?
 assert_eq "no HERDR_PANE_ID: no output" "" "$out"
-out=$(run "$BASH_PAYLOAD" ""); rc=$?
+out=$(run "$START_PAYLOAD" ""); rc=$?
 assert_eq "herdr call failing: exits 0" "0" "$rc"
 assert_eq "herdr call failing: no output" "" "$out"
-out=$(run "$BASH_PAYLOAD" "not json"); rc=$?
+out=$(run "$START_PAYLOAD" "not json"); rc=$?
 assert_eq "unparseable herdr output: exits 0" "0" "$rc"
 assert_eq "unparseable herdr output: no output" "" "$out"
 

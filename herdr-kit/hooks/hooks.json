@@ -1,9 +1,8 @@
 {
-  "description": "Herdr-only hooks: remind (never block) the orchestrator agent to delegate instead of doing work itself.",
+  "description": "Herdr-only hooks: at session start, remind (never block) the orchestrator agent to delegate instead of doing work itself.",
   "hooks": {
-    "PreToolUse": [
+    "SessionStart": [
       {
-        "matcher": "Bash|Agent",
         "hooks": [
           {
             "type": "command",
