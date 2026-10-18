@@ -45,7 +45,11 @@ console.log("== no-sleep: the block reason names an action actually available on
 {
   const result = call("sleep 10");
   const reason = (result?.reason ?? "").toLowerCase();
-  const ok = reason.includes("pi") && reason.includes("run the long command directly");
+  const ok =
+    reason.includes("on pi:") &&
+    reason.includes("agent tool is available") &&
+    reason.includes("schedule_prompt is available") &&
+    reason.includes("run the command directly");
   if (ok) { console.log("  PASS: reason gives a pi-actionable path"); pass++; }
   else { console.log(`  FAIL: reason gives a pi-actionable path (got: ${result?.reason})`); fail++; }
 }

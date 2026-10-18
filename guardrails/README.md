@@ -9,7 +9,7 @@ blocking inter-agent calls, blind filesystem scans). Each hook is a small script
 
 | Hook | What it does |
 |------|--------------|
-| **[no-sleep](hooks/scripts/no-sleep.sh)** | Blocks `sleep` used for waiting/polling — steers to `run_in_background` or a long-interval cron instead. |
+| **[no-sleep](hooks/scripts/no-sleep.sh)** | Blocks `sleep` used for waiting/polling — steers to `run_in_background` or a long-interval cron on Claude Code; on pi, to the `Agent` tool or `schedule_prompt` when available, else running the command directly. |
 | **[no-timeout-ssh](hooks/scripts/no-timeout-ssh.sh)** | Blocks wrapping ssh-family connections in `timeout` (which kills the session, not just the command). |
 | **[no-srun](hooks/scripts/no-srun.sh)** | Blocks the word `srun` anywhere in the command (a lexical match, not just as the invoked program — so e.g. `grep -R srun .` is blocked too) — steers to `salloc` once for the allocation, then plain `ssh <node> <command>` per call instead of serializing through one shared interactive shell. Also warns that anything running longer than a few minutes shouldn't go through a foreground `ssh` call either — the Bash tool's own per-call timeout cuts it off regardless of the SLURM time limit — and should be submitted with `sbatch` (returns immediately) plus `squeue`/`sacct`/`sstat`/`seff` polling instead. |
 | **[herdr-prompt-guard](hooks/scripts/herdr-prompt-guard.sh)** | Blocks any direct `herdr agent prompt` call — `--wait` stalls the caller's own turn, and a plain send has no reply path — steering to the herdr-kit `message` skill instead (`--callback` when a reply is needed). |
