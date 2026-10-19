@@ -72,7 +72,7 @@ mkmock "$SCREEN_CONCRETE_SELECTED"
 OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
 resolve_and_prepare claude lead 1
 assert_eq "bare launch + live model via a concrete entry: --model synthesized with the precise identifier" \
-  "--verbose --model claude-sonnet-5[1m] --effort high" "${BASE_FLAGS[*]}"
+  "--verbose --model Claude-Sonnet-5[1m] --effort high" "${BASE_FLAGS[*]}"
 
 # Case 3: an EXPLICIT baseline WAS captured (--model claude-opus-5[1m] at original launch), but
 # the live session has since switched to Default -- must REMOVE the stale --model entirely, not

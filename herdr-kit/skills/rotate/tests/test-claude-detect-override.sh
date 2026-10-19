@@ -50,7 +50,7 @@ ROTATE_DETECT_POLL_SECS=1
 
 detect_override wG:p4
 assert_eq "detect_override succeeds"                       "0"      "$?"
-assert_eq "model recovered from /model's own marked row, [1m] suffix kept"   "claude-sonnet-5[1m]" "$DETECTED_MODEL"
+assert_eq "model recovered from /model's own marked row, [1m] suffix kept"   "Claude-Sonnet-5[1m]" "$DETECTED_MODEL"
 assert_eq "effort recovered from /model"                   "medium" "$DETECTED_EFFORT"
 
 # A stale "<Model> with <level> effort" banner line sitting earlier in the same scrollback (no
@@ -105,7 +105,7 @@ herdr(){
   esac
 }
 detect_override wG:p4
-assert_eq "stale marked row (different model) does not beat the modal's own current selection" "claude-sonnet-5[1m]" "$DETECTED_MODEL"
+assert_eq "stale marked row (different model) does not beat the modal's own current selection" "Claude-Sonnet-5[1m]" "$DETECTED_MODEL"
 
 # A model that landed on the list some other way (e.g. via --model at launch, rather than being
 # one of the four standard numbered entries) gets its own row whose PRIMARY label is a
@@ -128,7 +128,7 @@ herdr(){
   esac
 }
 detect_override wG:p4
-assert_eq "a launch-time --model entry's real identifier is found in its description, not truncated to a trailing digit, and its [1m] suffix is preserved (a different, both-valid --model value)" "claude-sonnet-5[1m]" "$DETECTED_MODEL"
+assert_eq "a launch-time --model entry's real identifier is found in its description, not truncated to a trailing digit, and its [1m] suffix is preserved (a different, both-valid --model value)" "Claude-Sonnet-5[1m]" "$DETECTED_MODEL"
 
 # Two dated versions within the SAME family (e.g. Sonnet 4.5 vs Sonnet 5) both show the identical
 # generic "Custom Sonnet model" description -- extraction must read the row's own specific
@@ -146,7 +146,7 @@ herdr(){
   esac
 }
 detect_override wG:p4
-assert_eq "same-family, different dated version is extracted distinctly (not just 'sonnet')" "claude-sonnet-4-5[1m]" "$DETECTED_MODEL"
+assert_eq "same-family, different dated version is extracted distinctly (not just 'sonnet')" "Claude-Sonnet-4-5[1m]" "$DETECTED_MODEL"
 
 # close_modal itself: an unrelated mention of the marker phrase earlier in scrollback (not the
 # bottommost lines) must not be mistaken for a still-open modal.
@@ -282,7 +282,7 @@ herdr(){
   esac
 }
 detect_override wG:p4
-assert_eq "Default row's own 'currently X' description is the fallback when it's the selected row" "opus" "$DETECTED_MODEL"
+assert_eq "Default row's own 'currently X' description is the fallback when it's the selected row" "Opus" "$DETECTED_MODEL"
 assert_eq "Default-row fallback is flagged as lossy (DETECTED_MODEL_DEFAULT), not precise enough to pin as a new override" \
   "1" "$DETECTED_MODEL_DEFAULT"
 
@@ -386,7 +386,7 @@ herdr(){
 }
 ROTATE_DETECT_POLL_SECS=1
 detect_override wG:p4
-assert_eq "wrapped two-line footer still settles and model is recovered (not an empty miss)" "claude-sonnet-5[1m]" "$DETECTED_MODEL"
+assert_eq "wrapped two-line footer still settles and model is recovered (not an empty miss)" "Claude-Sonnet-5[1m]" "$DETECTED_MODEL"
 assert_eq "wrapped two-line footer: effort is still recovered too" "medium" "$DETECTED_EFFORT"
 
 # Regression for the gap this wrap-tolerance could otherwise reopen: second_to_last_nonblank_line
@@ -438,7 +438,7 @@ herdr(){
 ROTATE_DETECT_POLL_SECS=1
 DETECTED_MODEL=x DETECTED_EFFORT=x
 detect_override wX:p1
-assert_eq "marked row's own identifier, wrapped onto a continuation line, is still recovered" "claude-opus-5[1m]" "$DETECTED_MODEL"
+assert_eq "marked row's own identifier, wrapped onto a continuation line, is still recovered" "Claude-Opus-5[1m]" "$DETECTED_MODEL"
 assert_eq "effort is still recovered alongside the wrapped row" "high" "$DETECTED_EFFORT"
 
 # Same bug, second real capture: the marker lands on a DIFFERENT row (4, Sonnet) than the one with
@@ -459,7 +459,7 @@ herdr(){
 ROTATE_DETECT_POLL_SECS=1
 DETECTED_MODEL=x DETECTED_EFFORT=x
 detect_override wX:p12
-assert_eq "row-wrap fix generalizes to a marked row other than row 2" "claude-sonnet-5[1m]" "$DETECTED_MODEL"
+assert_eq "row-wrap fix generalizes to a marked row other than row 2" "Claude-Sonnet-5[1m]" "$DETECTED_MODEL"
 
 # Regression for a THIRD live-reproduced miss (pane wV:p1T, this session, caught live by rotating
 # a throwaway test agent): a model pinned via a prior rotation's own --model value gets its own

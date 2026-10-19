@@ -255,8 +255,9 @@ detect_override() {
     # prior rotation's own --model value echoes back in its OWN picker row as a lowercase
     # "claude-..." parenthetical (the exact casing of whatever was last passed to --model),
     # distinct from the capitalized "Claude-..." the picker's own built-in catalog entries use --
-    # a case-sensitive match found the latter but silently missed the former. Casing of the
-    # extracted value doesn't matter either way: DETECTED_MODEL is lowercased below regardless.
+    # a case-sensitive match found the latter but silently missed the former. The value is kept
+    # exactly as the picker shows it: it becomes the relaunch's --model value, and lowercasing
+    # it rewrote the configured "Claude-..." name into a different spelling on every rotation.
     name=$(printf '%s' "$row" | grep -oiE 'Claude-[A-Za-z0-9._-]+(\[[A-Za-z0-9._-]+\])?' | head -n1) || true
     # The Default row has no such identifier column of its own -- its description instead reads
     # "Use the default model (currently Opus 5 (1M context))", so fall back to the family name
@@ -273,7 +274,7 @@ detect_override() {
       name=$(printf '%s' "$row" | grep -oE 'currently [A-Za-z]+' | awk '{print $2}') || true
       DETECTED_MODEL_DEFAULT=1
     fi
-    DETECTED_MODEL=$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')
+    DETECTED_MODEL="$name"
 
     # Require "adjust" on the SAME line as the level word so this can only match the modal's
     # own current-effort line, never the persistent "<Model> with <level> effort" banner further
