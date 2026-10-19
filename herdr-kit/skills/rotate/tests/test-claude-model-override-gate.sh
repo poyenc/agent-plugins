@@ -72,7 +72,17 @@ mkmock "$SCREEN_CONCRETE_SELECTED"
 OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
 resolve_and_prepare claude lead 1
 assert_eq "bare launch + live model via a concrete entry: --model synthesized with the precise identifier" \
-  "--verbose --model claude-sonnet-5[1m] --effort high" "${BASE_FLAGS[*]}"
+  "--verbose --model Claude-Sonnet-5[1m] --effort high" "${BASE_FLAGS[*]}"
+
+# Case 2b: an EXPLICIT lowercase baseline (--model claude-sonnet-5[1m] at original launch) and the
+# live picker shows the capitalized catalog row -- the exact-match comparison must see a different
+# spelling and replace the launch value with the picker's casing, not keep the lowercase one.
+MOCK_PROC=$(jq -nc '{result:{process_info:{foreground_processes:[{name:"claude",argv:["claude","--model","claude-sonnet-5[1m]","--verbose"]}]}}}')
+mkmock "$SCREEN_CONCRETE_SELECTED"
+OVERRIDE_NAME=""; OVERRIDE_MODEL=""; OVERRIDE_EFFORT=""
+resolve_and_prepare claude lead 1
+assert_eq "explicit lowercase baseline + capitalized live row: --model replaced with the picker's casing" \
+  "--model Claude-Sonnet-5[1m] --verbose --effort high" "${BASE_FLAGS[*]}"
 
 # Case 3: an EXPLICIT baseline WAS captured (--model claude-opus-5[1m] at original launch), but
 # the live session has since switched to Default -- must REMOVE the stale --model entirely, not
