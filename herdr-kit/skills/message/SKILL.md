@@ -86,6 +86,17 @@ just the bare slash-command. There is no persisted message store, inbox, or deli
 beyond whatever `herdr agent prompt` itself reports; a failed send dies loudly rather than
 reporting success.
 
+**Typing guard.** `send`, `reply` and `command` first read the target's visible screen and refuse --
+nothing is sent, exit status 75, a message saying someone is typing -- when the target's prompt box
+holds unsent text, because a delivered message would interleave with what the person is typing. Retry
+later: schedule a wake-up (`ScheduleWakeup`/`CronCreate` on Claude Code, `schedule_prompt` on pi)
+or tell the user; do not loop on the send. Only claude and pi targets are checked. Anything it
+cannot determine -- the lookup or screen read fails, another agent kind, your own pane, no
+recognizable prompt box -- lets the send proceed. Codex targets are not checked. Two small windows
+remain: typed text takes tens of milliseconds to show up on screen, so a keystroke typed just before
+the read can be missed, and the screen read and the send are two separate herdr calls, so a
+keystroke typed between them can still interleave.
+
 ## Known limitations
 
 - **No delivery guarantee beyond the initial send succeeding.** If the target's pane closes,

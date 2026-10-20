@@ -5,11 +5,18 @@
 # PATH-shadowing binary is needed instead. Config via env: MOCK_CALLS (log file, required),
 # MOCK_SENDER_NAME (agent get's reported name, empty = unnamed), MOCK_FAIL_SEND (1 = simulate
 # agent prompt failing with a diagnostic on stderr, 2 = simulate it failing with NOTHING on
-# stderr).
+# stderr), MOCK_TARGET_KIND (agent get's reported agent kind, default claude), MOCK_TARGET_PANE
+# (agent get's reported pane id, default wK:p1), MOCK_SCREEN (file served by pane read; unset =
+# empty screen), MOCK_FAIL_READ (1 = pane read fails).
 set -uo pipefail
 printf '%s\n' "${*//$'\n'/\\n}" >> "$MOCK_CALLS"   # collapse embedded newlines: one call = one log line
 case "$1 $2" in
-  "agent get") printf '{"result":{"agent":{"name":"%s"}}}\n' "${MOCK_SENDER_NAME:-}" ;;
+  "agent get") printf '{"result":{"agent":{"name":"%s","agent":"%s","pane_id":"%s"}}}\n' "${MOCK_SENDER_NAME:-}" "${MOCK_TARGET_KIND:-claude}" "${MOCK_TARGET_PANE:-wK:p1}" ;;
+  "pane read")
+    [ "${MOCK_FAIL_READ:-0}" = 1 ] && exit 1
+    # honor --lines N like the real thing: only the last N lines of the screen
+    n=1000; while [ $# -gt 0 ]; do [ "$1" = "--lines" ] && { n="$2"; break; }; shift; done
+    [ -n "${MOCK_SCREEN:-}" ] && tail -n "$n" "$MOCK_SCREEN" ;;
   "agent prompt")
     [ "${MOCK_FAIL_SEND:-0}" = 1 ] && { echo '{"error":{"code":"agent_prompt_stalled"}}' >&2; exit 1; }
     [ "${MOCK_FAIL_SEND:-0}" = 2 ] && exit 1

@@ -107,6 +107,51 @@ parse_callback_flags() {
   done
 }
 
+# Scans a visible pane screen on stdin, like grep: exit status 0 when it FINDS unsent text in the prompt
+# box, 1 when it finds none or cannot tell.
+# The prompt box is the region between the LAST TWO rule lines (a line starting with "──"): claude
+# draws "❯ <text>" there, pi draws the text on its own line. Text is anything left after stripping an
+# optional leading "❯". No box found (fewer than two rules, e.g. a menu or a different layout) returns 1,
+# i.e. "can't tell", which never blocks a send.
+scan_screen_for_draft() {
+  local line i r1=-1 r2=-1 n
+  local -a lines=()
+  while IFS= read -r line; do lines+=("$line"); done
+  n=${#lines[@]}
+  for (( i=0; i<n; i++ )); do
+    case "${lines[$i]}" in "──"*) r1=$r2; r2=$i ;; esac
+  done
+  [ "$r1" -ge 0 ] || return 1
+  for (( i=r1+1; i<r2; i++ )); do
+    line="${lines[$i]}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line#❯}"
+    line="${line//[[:space:]]/}"
+    if [ -n "$line" ]; then return 0; fi
+  done
+  return 1
+}
+
+# Aborts the whole script (exit 75, "temporary failure"; it does not return) when the TARGET's prompt
+# box holds unsent text -- someone is typing there, and a delivered message would interleave with
+# their input. Only claude and pi targets are checked. Anything it cannot determine (target lookup or
+# screen read fails, another agent kind, the caller's own pane, no recognizable prompt box) returns
+# normally, so the send proceeds. The read asks for far more lines than any pane is tall (a tall
+# wrapped draft can put the top rule many lines above the bottom one; the visible source never
+# returns more than the pane shows).
+abort_if_target_typing() {
+  local target="$1" info kind pane screen
+  info=$(herdr agent get "$target" 2>/dev/null) || return 0
+  kind=$(jq -r '.result.agent.agent // empty' <<<"$info" 2>/dev/null) || return 0
+  pane=$(jq -r '.result.agent.pane_id // empty' <<<"$info" 2>/dev/null) || return 0
+  case "$kind" in claude|pi) ;; *) return 0 ;; esac
+  { [ -n "$pane" ] && [ "$pane" != "${HERDR_PANE_ID:-}" ]; } || return 0
+  screen=$(herdr pane read "$pane" --source visible --lines 500 2>/dev/null) || return 0
+  printf '%s\n' "$screen" | scan_screen_for_draft || return 0
+  note "target $target ($pane) has unsent text in its prompt box -- someone is typing there, so nothing was sent (it would interleave with their input). Retry later: schedule a wake-up (ScheduleWakeup/CronCreate on Claude Code, schedule_prompt on pi) or tell the user. Exit status 75."
+  exit 75
+}
+
 cmd_send() {
   guard || { note "not in herdr (HERDR_ENV != 1); no-op"; exit 0; }
   [ -n "${HERDR_PANE_ID:-}" ] || die "HERDR_PANE_ID is not set -- cannot determine sender identity"
@@ -119,6 +164,7 @@ cmd_send() {
   local target="$1" text="$2"; shift 2
   local callback callback_msg
   parse_callback_flags callback callback_msg "$@"
+  abort_if_target_typing "$target"
   local id from envelope err
   id=$(generate_message_id)
   from=$(sender_from_line)
@@ -138,6 +184,7 @@ cmd_reply() {
   local target="$1" id="$2" text="$3"; shift 3
   local callback callback_msg
   parse_callback_flags callback callback_msg "$@"
+  abort_if_target_typing "$target"
   local from envelope err
   from=$(sender_from_line)
   envelope=$(build_reply_envelope "$id" "$from" "$text" "$callback" "$callback_msg")
@@ -164,6 +211,7 @@ cmd_command() {
   [ $# -eq 2 ] || die "usage: herdr-message command <target> </slash-command> (no flags, e.g. no --callback)"
   local target="$1" command="$2"
   [[ "$command" =~ ^/[^[:space:]]+$ ]] || die "command must be a single bare slash-command (e.g. /model), with no spaces or extra arguments: got '$command'"
+  abort_if_target_typing "$target"
   local err
   err=$(herdr agent prompt "$target" "$command" 2>&1 >/dev/null) || die "failed to send command to $target${err:+: $err}"
   jq -nc --arg target "$target" --arg command "$command" '{"sent_to":$target,"command":$command}'

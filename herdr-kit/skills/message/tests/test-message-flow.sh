@@ -7,7 +7,7 @@ assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); el
 
 MOCK_CALLS=$(mktemp)
 export MOCK_CALLS PATH="$HERE/mock:$PATH"
-setup() { : > "$MOCK_CALLS"; export HERDR_ENV=1 HERDR_PANE_ID=wF:p1; unset MOCK_SENDER_NAME MOCK_FAIL_SEND; }
+setup() { : > "$MOCK_CALLS"; export HERDR_ENV=1 HERDR_PANE_ID=wF:p1; unset MOCK_SENDER_NAME MOCK_FAIL_SEND MOCK_TARGET_KIND MOCK_TARGET_PANE MOCK_SCREEN MOCK_FAIL_READ; }
 
 setup
 export MOCK_SENDER_NAME=plugin-writer
@@ -139,6 +139,46 @@ assert_eq "command rejects --callback (no reply path for a raw CLI command)" "1"
 ( HERDR_ENV=1 HERDR_PANE_ID=wF:p1; bash "$S/herdr-message" reply wF:p1 abc123 >/dev/null 2>&1 ); assert_eq "reply missing text dies" "1" "$?"
 ( HERDR_ENV=1 HERDR_PANE_ID=wF:p1; bash "$S/herdr-message" send wK:p1 "x" --bogus >/dev/null 2>&1 ); assert_eq "send rejects an unknown option" "1" "$?"
 ( HERDR_ENV=1 HERDR_PANE_ID=wF:p1; bash "$S/herdr-message" reply wF:p1 abc123 "x" --bogus >/dev/null 2>&1 ); assert_eq "reply rejects an unknown option" "1" "$?"
+
+# --- typing guard: refuse (exit 75) when the target's prompt box holds unsent text ------------------
+R='───────────────────────────────────────────────────────'
+SCR=$(mktemp)
+sent(){ grep -c 'agent prompt' "$MOCK_CALLS"; }
+
+setup; printf '%s\n❯ half typed draft\n%s\n  footer\n' "$R" "$R" > "$SCR"; export MOCK_SCREEN="$SCR"
+out=$(bash "$S/herdr-message" send wK:p1 "hi" 2>&1); rc=$?
+assert_eq "send to a claude target with a draft exits 75" "75" "$rc"
+assert_eq "send to a target with a draft sends nothing" "0" "$(sent)"
+assert_eq "the refusal says someone is typing and to retry later" "1" "$(printf '%s' "$out" | grep -c 'someone is typing there')"
+setup; export MOCK_SCREEN="$SCR"
+bash "$S/herdr-message" reply wK:p1 abc123 "hi" >/dev/null 2>&1; assert_eq "reply to a target with a draft exits 75" "75" "$?"
+assert_eq "reply to a target with a draft sends nothing" "0" "$(sent)"
+setup; export MOCK_SCREEN="$SCR"
+bash "$S/herdr-message" command wK:p1 /model >/dev/null 2>&1; assert_eq "command to a target with a draft exits 75" "75" "$?"
+assert_eq "command to a target with a draft sends nothing" "0" "$(sent)"
+
+# a tall wrapped draft: the two rules are more than 40 lines apart, so a 40-line read would miss the top rule
+setup; { printf 'older output\n%s\n' "$R"; printf '❯ draft line %s\n' $(seq 1 60); printf '%s\n  footer one\n  footer two\n' "$R"; } > "$SCR"; export MOCK_SCREEN="$SCR"
+bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "a draft whose rules are 60 lines apart is still refused" "75" "$?"
+assert_eq "the tall draft sends nothing" "0" "$(sent)"
+
+setup; printf '%s\n❯\n%s\n  footer\n' "$R" "$R" > "$SCR"; export MOCK_SCREEN="$SCR"
+bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "an empty prompt box sends" "0" "$?"
+assert_eq "an empty prompt box delivers the message" "1" "$(sent)"
+
+setup; printf '%s\nhalf typed draft\n%s\nfooter\n' "$R" "$R" > "$SCR"; export MOCK_SCREEN="$SCR" MOCK_TARGET_KIND=pi
+bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "send to a pi target with a draft exits 75" "75" "$?"
+setup; printf '%s\n\n%s\nfooter\n' "$R" "$R" > "$SCR"; export MOCK_SCREEN="$SCR" MOCK_TARGET_KIND=pi
+bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "send to a pi target with an empty box sends" "0" "$?"
+
+setup; printf '%s\n❯ text\n%s\n' "$R" "$R" > "$SCR"; export MOCK_SCREEN="$SCR" MOCK_TARGET_KIND=codex
+bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "a codex target is not checked (cannot parse it)" "0" "$?"
+setup; printf '%s\n❯ text\n%s\n' "$R" "$R" > "$SCR"; export MOCK_SCREEN="$SCR" MOCK_TARGET_PANE=wF:p1
+bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "the caller's own pane is not checked" "0" "$?"
+setup; printf '%s\n❯ text\n%s\n' "$R" "$R" > "$SCR"; export MOCK_SCREEN="$SCR" MOCK_FAIL_READ=1
+bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "a failing screen read lets the send proceed" "0" "$?"
+assert_eq "a failing screen read still delivers" "1" "$(sent)"
+rm -f "$SCR"
 
 rm -f "$MOCK_CALLS"
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
