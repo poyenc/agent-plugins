@@ -88,4 +88,20 @@ for weird in 'a"b' 'has space' "tick'q"; do
   assert_eq "default reply callback round-trips the exact id [$weird] at arg 4" "$weird" "${4:-x}"
 done
 
+# scan_screen_for_draft: the prompt box is the region between the last two rule lines; text there (after an
+# optional leading "❯") is an unsent draft (exit status 0).
+R='───────────────────────────────────────────────────────'
+draft(){ printf '%s\n' "$1" | scan_screen_for_draft; echo $?; }   # prints the exit status: 0 = draft, 1 = no draft / cannot tell
+assert_eq "claude: draft text after the prompt marker" "0" "$(draft "$(printf 'older output\n%s\n❯ half typed draft\n%s\n  ~/repo (main)\n  Sonnet 5 high' "$R" "$R")")"
+assert_eq "claude: empty prompt box is no draft" "1" "$(draft "$(printf 'older output\n%s\n❯\n%s\n  ~/repo (main)\n  Sonnet 5 high' "$R" "$R")")"
+assert_eq "claude: prompt marker with trailing spaces only is no draft" "1" "$(draft "$(printf '%s\n❯   \n%s\n  footer' "$R" "$R")")"
+assert_eq "claude: a draft wrapped over two lines is a draft" "0" "$(draft "$(printf '%s\n❯ first line\n  second line\n%s\n  footer' "$R" "$R")")"
+assert_eq "pi: draft text on its own line" "0" "$(draft "$(printf '%s\nhalf typed draft\n%s\n~/repo (main)\n0.0%%/1.1M (auto)  gpt-6-luna' "$R" "$R")")"
+assert_eq "pi: empty box is no draft" "1" "$(draft "$(printf '%s\n\n%s\n~/repo (main)\n0.0%%/1.1M (auto)  gpt-6-luna' "$R" "$R")")"
+assert_eq "pi: empty box under the Working rule is no draft" "1" "$(draft "$(printf '── ⠙ Working ───────────────────────\n\n%s\n~/repo (main)\n↑3 ↓93' "$R")")"
+assert_eq "pi: draft under the Working rule is a draft" "0" "$(draft "$(printf '── ⠙ Working ───────────────────────\nhello there\n%s\n~/repo (main)' "$R")")"
+assert_eq "only one rule on screen: cannot tell, no draft" "1" "$(draft "$(printf 'output\n%s\n❯ text' "$R")")"
+assert_eq "no rules at all (empty screen): no draft" "1" "$(draft "")"
+assert_eq "only the LAST two rules count (text above an earlier rule is ignored)" "1" "$(draft "$(printf '%s\ntext in old output\n%s\n❯\n%s\nfooter' "$R" "$R" "$R")")"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
