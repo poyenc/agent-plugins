@@ -1,5 +1,5 @@
 {
-  "description": "Behavioral guardrails: block sleep, block built-in memory access (read and write), warn on 2+ concurrent crons, block named agents, block oversized Read calls, block direct `herdr agent prompt` calls (steer to the message skill), block direct `herdr pane wait-output`/`herdr agent wait`, block whole-tree `find` scans, block plain whole-tree recursive searches (grep -r/rg/fd/ls -R rooted at / or $HOME), block `timeout`-wrapped ssh/scp/sftp and rsync-over-ssh, block `srun` (steer to salloc once + plain ssh per call), block `docker` on an Alola login node (steer to salloc once + plain ssh per call).",
+  "description": "Behavioral guardrails: block sleep, block built-in memory access (read and write), warn on 2+ concurrent crons, block named agents, block oversized Read calls, block direct `herdr agent prompt` calls (steer to the message skill), block direct `herdr pane wait-output`/`herdr agent wait`, block whole-tree `find` scans, block plain whole-tree recursive searches (grep -r/rg/fd/ls -R rooted at / or $HOME), block `timeout`-wrapped ssh/scp/sftp and rsync-over-ssh, block `srun` (steer to salloc once + plain ssh per call), block `docker` on an Alola login node (steer to salloc once + plain ssh per call), block `tail` in follow mode (-f/-F/--follow and abbreviations), which does not exit (steer to run_in_background and a scheduled check instead of polling).",
   "hooks": {
     "PreToolUse": [
       {
@@ -36,6 +36,10 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-docker-on-login-node.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-tail-follow.sh\""
           }
         ]
       },
