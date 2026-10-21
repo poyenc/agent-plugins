@@ -92,7 +92,11 @@ holds unsent text, because a delivered message would interleave with what the pe
 later: schedule a wake-up (`ScheduleWakeup`/`CronCreate` on Claude Code, `schedule_prompt` on pi)
 or tell the user; do not loop on the send. Only claude and pi targets are checked. Anything it
 cannot determine -- the lookup or screen read fails, another agent kind, your own pane, no
-recognizable prompt box -- lets the send proceed. Codex targets are not checked. Two small windows
+recognizable prompt box -- lets the send proceed. Codex targets are not checked. The screen is read
+with color codes, and dim placeholder text (with the cursor on its first letter) and a blank cursor
+cell do not count as typed text, while normal and highlighted text does: a message that is already
+queued for a busy claude agent leaves only a dim "Press up to edit queued messages" hint in its box,
+so it does not block other senders (pi shows queued messages outside its box). Two small windows
 remain: typed text takes tens of milliseconds to show up on screen, so a keystroke typed just before
 the read can be missed, and the screen read and the send are two separate herdr calls, so a
 keystroke typed between them can still interleave.

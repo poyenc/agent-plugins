@@ -178,6 +178,18 @@ bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "the caller's
 setup; printf '%s\n❯ text\n%s\n' "$R" "$R" > "$SCR"; export MOCK_SCREEN="$SCR" MOCK_FAIL_READ=1
 bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "a failing screen read lets the send proceed" "0" "$?"
 assert_eq "a failing screen read still delivers" "1" "$(sent)"
+# claude queues a message entered while it is busy: the box then holds only a dim hint (with the shaded
+# cursor on its first letter), which is not typed text, so the send must go through; real typed text is
+# still refused.
+NB=$(printf '\302\240')
+RA=$(printf '\033[0m\033[38;2;136;136;136m%s\033[0m' "$R")
+setup; { printf 'older output\n%s\n' "$RA"; printf '\033[0m\033[38;2;153;153;153m❯%s\033[0m\033[7mP\033[0m\033[2mress up to edit queued messages\033[0m\r\n' "$NB"; printf '%s\n  footer\n' "$RA"; } > "$SCR"; export MOCK_SCREEN="$SCR"
+bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "claude with a queued message (dim hint in the box) is sent to" "0" "$?"
+assert_eq "the message is delivered despite the queued hint" "1" "$(sent)"
+setup; { printf 'older output\n%s\n' "$RA"; printf '\033[0m\033[38;2;153;153;153m❯%s\033[0mREALDRAFT\033[0m\033[7m \033[0m\r\n' "$NB"; printf '%s\n  footer\n' "$RA"; } > "$SCR"; export MOCK_SCREEN="$SCR"
+bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "claude with normal-colored typed text in the ANSI box is refused" "75" "$?"
+assert_eq "nothing is sent over a typed ANSI draft" "0" "$(sent)"
+
 rm -f "$SCR"
 
 rm -f "$MOCK_CALLS"
