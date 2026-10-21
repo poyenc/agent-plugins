@@ -104,4 +104,67 @@ assert_eq "only one rule on screen: cannot tell, no draft" "1" "$(draft "$(print
 assert_eq "no rules at all (empty screen): no draft" "1" "$(draft "")"
 assert_eq "only the LAST two rules count (text above an earlier rule is ignored)" "1" "$(draft "$(printf '%s\ntext in old output\n%s\n❯\n%s\nfooter' "$R" "$R" "$R")")"
 
+# ANSI screens as herdr emits them with --format ansi (sequences captured from real claude and pi panes).
+# claude draws a placeholder hint DIM with the shaded (reverse-video) cursor on its first letter; neither
+# the dim cells nor the cursor cell may count as typed text, while normal-colored text must.
+RA=$(printf '\033[0m\033[38;2;136;136;136m%s\033[0m' "$R")
+NB=$(printf '\302\240')
+clr_empty=$(printf '\033[0m\033[38;2;153;153;153m❯%s\033[0m\033[7m \033[0m\r' "$NB")
+clr_hint=$(printf '\033[0m\033[38;2;153;153;153m❯%s\033[0m\033[7mP\033[0m\033[2mress up to edit queued messages\033[0m\r' "$NB")
+clr_draft=$(printf '\033[0m\033[38;2;153;153;153m❯%s\033[0mREALDRAFT\033[0m\033[7m \033[0m\r' "$NB")
+pi_empty=$(printf '\033[0m\033[7m \033[0m                                  \r')
+pi_draft=$(printf 'TYPED DRAFT TEXT\033[0m\033[7m \033[0m                  \r')
+ansi_screen(){ printf 'older output\n%s\n%s\n%s\n  footer\n' "$RA" "$1" "$RA"; }
+assert_eq "ansi claude: the dim queued-messages hint with a shaded cursor is no draft" "1" "$(draft "$(ansi_screen "$clr_hint")")"
+assert_eq "ansi claude: empty box (cursor only) is no draft" "1" "$(draft "$(ansi_screen "$clr_empty")")"
+assert_eq "ansi claude: normal-colored typed text is a draft" "0" "$(draft "$(ansi_screen "$clr_draft")")"
+assert_eq "ansi pi: empty box (cursor only) is no draft" "1" "$(draft "$(ansi_screen "$pi_empty")")"
+assert_eq "ansi pi: typed text is a draft" "0" "$(draft "$(ansi_screen "$pi_draft")")"
+assert_eq "ansi: rule lines wrapped in color codes still delimit the box" "0" "$(draft "$(printf 'x\n%s\n%s\n%s\n' "$RA" "$clr_draft" "$RA")")"
+assert_eq "ansi: a truecolor sequence (38;2;2;2;2) is not mistaken for dim" "0" "$(draft "$(ansi_screen "$(printf '\033[38;2;2;2;2mvisible text\033[0m')")")"
+assert_eq "ansi: dim ended by 22 lets later text count" "0" "$(draft "$(ansi_screen "$(printf '\033[2mhint\033[22m typed\033[0m')")")"
+assert_eq "ansi: bold+dim (1;2) text is ignored" "1" "$(draft "$(ansi_screen "$(printf '\033[1;2mhint only\033[0m')")")"
+assert_eq "ansi: a draft after a dim hint on the same line still counts" "0" "$(draft "$(ansi_screen "$(printf '\033[2mhint\033[0m real')")")"
+assert_eq "ansi: a rule drawn dim is still recognized as a rule" "0" "$(draft "$(printf 'x\n%s\n%s\n%s\n' "$(printf '\033[2m%s\033[0m' "$R")" "$clr_draft" "$(printf '\033[2m%s\033[0m' "$R")")")"
+
+# Finding: reverse-video text is real input unless it is the cursor on a dim hint.
+assert_eq "ansi: a single real character under the cursor is a draft" "0" "$(draft "$(ansi_screen "$(printf '\033[0m\033[38;2;153;153;153m❯%s\033[0m\033[7mX\033[0m' "$NB")")")"
+assert_eq "ansi: selected (reverse-video) draft text is a draft" "0" "$(draft "$(ansi_screen "$(printf '\033[0m\033[38;2;153;153;153m❯%s\033[0m\033[7mREALDRAFT\033[0m' "$NB")")")"
+assert_eq "ansi: cursor over a letter inside typed text keeps the whole draft" "0" "$(draft "$(ansi_screen "$(printf '❯%shel\033[7ml\033[0mo' "$NB")")")"
+assert_eq "ansi: a blank reverse cursor cell alone is no draft" "1" "$(draft "$(ansi_screen "$(printf '❯%s\033[7m \033[0m' "$NB")")")"
+
+# Finding: colon-form SGR and non-SGR escapes, in both directions (a miss, and a lockout).
+RC=$(printf '\033[38:2:136:136:136m%s\033[0m' "$R")
+assert_eq "ansi: colon-form color on the rule lines still delimits the box (draft found)" "0" "$(draft "$(printf 'x\n%s\n%s\n%s\n' "$RC" "$clr_draft" "$RC")")"
+assert_eq "ansi: colon-form color with a colorspace slot (38:2::r:g:b) is not mistaken for dim" "0" "$(draft "$(ansi_screen "$(printf '\033[38:2::2:2:2mvisible\033[0m')")")"
+assert_eq "ansi: colon-form color text in an otherwise empty box is no escape residue (no draft)" "1" "$(draft "$(ansi_screen "$(printf '\033[38:2:153:153:153m\033[0m\033[7m \033[0m')")")"
+assert_eq "ansi: a non-SGR CSI (ESC[K) in an empty box is no draft" "1" "$(draft "$(ansi_screen "$(printf '\033[7m \033[0m\033[K')")")"
+assert_eq "ansi: an OSC hyperlink wrapper in an empty box is no draft" "1" "$(draft "$(ansi_screen "$(printf '\033]8;;http://x\033\\\033[7m \033[0m\033]8;;\033\\')")")"
+assert_eq "ansi: an OSC closed by BEL in an empty box is no draft" "1" "$(draft "$(ansi_screen "$(printf '\033]0;title\007\033[7m \033[0m')")")"
+assert_eq "ansi: a dangling ESC at the end of an empty box line is no draft" "1" "$(draft "$(ansi_screen "$(printf '\033[7m \033[0m\033')")")"
+assert_eq "ansi: a charset escape in an empty box is no draft" "1" "$(draft "$(ansi_screen "$(printf '\033(B\033[7m \033[0m')")")"
+assert_eq "ansi: typed text next to a non-SGR CSI is still a draft" "0" "$(draft "$(ansi_screen "$(printf 'typed\033[K')")")"
+
+# Finding: SGR state persists across lines, so a wrapped dim hint stays dim on its continuation line.
+wrapped=$(printf '%s\n%s\n%s\n%s\n%s\n' "$RA" "$(printf '\033[0m\033[38;2;153;153;153m❯%s\033[0m\033[7mP\033[0m\033[2mress up to edit' "$NB")" "queued messages $(printf '\033[0m')" "$RA" "  footer")
+assert_eq "ansi: a dim hint wrapped over two lines is no draft" "1" "$(draft "$(printf 'x\n%s' "$wrapped")")"
+assert_eq "ansi: dim state carried to the next line ends at its reset" "0" "$(draft "$(printf 'x\n%s\n%s\n%s\n%s\n' "$RA" "$(printf '\033[2mdim one')" "$(printf '\033[0mnormal two')" "$RA")")"
+
+# Finding: more escape families (DEC save/restore, other charset designators, string controls) are
+# stripped both ways -- no lockout over residue, and typed text beside them is still found.
+assert_eq "ansi: DEC save/restore cursor (ESC 7 / ESC 8) in an empty box is no draft" "1" "$(draft "$(ansi_screen "$(printf '\0337\033[7m \033[0m\0338')")")"
+assert_eq "ansi: charset designator ESC * B in an empty box is no draft" "1" "$(draft "$(ansi_screen "$(printf '\033*B\033[7m \033[0m')")")"
+assert_eq "ansi: a DCS string closed by ST in an empty box is no draft" "1" "$(draft "$(ansi_screen "$(printf '\033Pq#0;2;0;0;0\033\\\033[7m \033[0m')")")"
+assert_eq "ansi: an APC string closed by ST in an empty box is no draft" "1" "$(draft "$(ansi_screen "$(printf '\033_Gf=100;data\033\\\033[7m \033[0m')")")"
+assert_eq "ansi: an SOS/PM string closed by BEL in an empty box is no draft" "1" "$(draft "$(ansi_screen "$(printf '\033^note\007\033[7m \033[0m')")")"
+assert_eq "ansi: an unterminated OSC drops the rest of its line (no draft)" "1" "$(draft "$(ansi_screen "$(printf '\033]8;;http://never-closed junk text')")")"
+assert_eq "ansi: an unterminated DCS drops the rest of its line (no draft)" "1" "$(draft "$(ansi_screen "$(printf '\033Pjunk text with no terminator')")")"
+assert_eq "ansi: typed text before an ESC 7 is still a draft" "0" "$(draft "$(ansi_screen "$(printf 'typed\0337')")")"
+assert_eq "ansi: typed text after a DCS string is still a draft" "0" "$(draft "$(ansi_screen "$(printf '\033Pq\033\\typed')")")"
+
+# Finding: a reverse cell followed by dim text is dropped only when nothing was typed before it.
+assert_eq "ansi: typed text, then a reverse cell, then dim text keeps the draft" "0" "$(draft "$(ansi_screen "$(printf '❯%shello \033[7mw\033[0m\033[2m ghost\033[0m' "$NB")")")"
+assert_eq "ansi: the cursor on the first letter of a dim hint with nothing before it is the hint (no draft)" "1" "$(draft "$(ansi_screen "$(printf '❯%s\033[7mT\033[0m\033[2mry something\033[0m' "$NB")")")"
+assert_eq "ansi: a multi-character reverse run before dim text is kept (selected text)" "0" "$(draft "$(ansi_screen "$(printf '❯%s\033[7mselected text\033[0m\033[2m hint\033[0m' "$NB")")")"
+
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
