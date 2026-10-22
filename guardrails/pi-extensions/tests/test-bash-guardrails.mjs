@@ -17,13 +17,19 @@ const handlers = {};
 const fakePi = { on(event, handler) { handlers[event] = handler; } };
 ext(fakePi);
 
-function call(command) {
-  return handlers.tool_call({ type: "tool_call", toolCallId: "t1", toolName: "bash", input: { command } });
+// $2 timeout (seconds, pi's native unit) is optional -- omit it to exercise the "no timeout
+// declared" path that no-long-foreground.sh now enforces for pi too (see its own tests for
+// that hook's full behavior; here we only need enough to not spuriously block the OTHER
+// guards' representative triggers below).
+function call(command, timeout) {
+  const input = { command };
+  if (timeout !== undefined) input.timeout = timeout;
+  return handlers.tool_call({ type: "tool_call", toolCallId: "t1", toolName: "bash", input });
 }
 
 let pass = 0, fail = 0;
-function assertBlock(label, command, shouldBlock) {
-  const result = call(command);
+function assertBlock(label, command, shouldBlock, timeout) {
+  const result = call(command, timeout);
   const blocked = !!result?.block;
   if (blocked === shouldBlock) {
     console.log(`  PASS: ${label}`);
@@ -96,10 +102,24 @@ console.log("== no-docker-on-login-node: docker on an Alola login node (hostname
 }
 
 console.log("== ALLOW: unrelated and documented-alternative commands ==");
-assertBlock("git status", "git status", false);
-assertBlock("salloc --gres=... --time=...", "salloc --gres=gpu:1 --time=1-0", false);
-assertBlock("plain ssh to a node", "ssh host uptime", false);
-assertBlock("find . -name foo (scoped)", "find . -name foo", false);
+// All four now need an explicit short timeout: no-long-foreground.sh blocks any pi Bash call
+// (foreground by construction -- pi has no run_in_background) with no declared timeout.
+assertBlock("git status", "git status", false, 5);
+assertBlock("salloc --gres=... --time=...", "salloc --gres=gpu:1 --time=1-0", false, 5);
+assertBlock("plain ssh to a node", "ssh host uptime", false, 5);
+assertBlock("find . -name foo (scoped)", "find . -name foo", false, 5);
+
+console.log("== no-long-foreground: pi branch (harness-aware via bash-guardrails.ts's \"harness\":\"pi\" marker) ==");
+assertBlock("no timeout declared: blocked", "echo hi", true);
+assertBlock("timeout:5 (under default 30s cap): allowed", "echo hi", false, 5);
+assertBlock("timeout:9999 (over default 30s cap): blocked", "echo hi", true, 9999);
+{
+  const result = call("echo hi");
+  const reason = (result?.reason ?? "").toLowerCase();
+  const ok = reason.includes("agent tool") && reason.includes("schedule_prompt") && !reason.includes("run_in_background");
+  if (ok) { console.log("  PASS: reason is pi-actionable (Agent tool / schedule_prompt, no run_in_background)"); pass++; }
+  else { console.log(`  FAIL: reason is pi-actionable (got: ${result?.reason})`); fail++; }
+}
 
 console.log("== non-bash tool_call events are ignored ==");
 {

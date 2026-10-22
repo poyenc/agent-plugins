@@ -54,12 +54,18 @@ function loadBashGuardScripts() {
 
 const GUARD_SCRIPTS = loadBashGuardScripts();
 
-/** Run one guard script with the same {tool_input:{command}} stdin contract the Claude Code
- *  hook runner uses, so the scripts themselves need no harness-specific branching. */
-function runGuard(script, command) {
+/** Run one guard script with the Claude Code PreToolUse stdin contract
+ *  ({tool_input: <the real tool input>}), plus "harness":"pi" so a script whose Claude-side and
+ *  pi-side policy genuinely differ (not just wording -- e.g. units, or a feature one harness
+ *  doesn't have at all) can tell the two apart. A genuine Claude Code PreToolUse call never
+ *  carries that marker, so this cannot be confused with one. Passing the FULL real tool_input
+ *  (not just {command}) lets a script read whatever other fields pi's Bash tool actually
+ *  exposes (e.g. `timeout`, in seconds); a script that only reads .tool_input.command, like
+ *  every other guard here today, is unaffected by the extra fields. */
+function runGuard(script, toolInput) {
   try {
     const stdout = execFileSync("bash", [path.join(SCRIPTS_DIR, script)], {
-      input: JSON.stringify({ tool_input: { command } }),
+      input: JSON.stringify({ tool_input: toolInput, harness: "pi" }),
       timeout: 5000,
       encoding: "utf8",
     });
@@ -78,7 +84,7 @@ export default function (pi) {
     if (!command) return;
 
     for (const script of GUARD_SCRIPTS) {
-      const result = runGuard(script, command);
+      const result = runGuard(script, event.input);
       if (result?.decision === "block") {
         return { block: true, reason: result.reason };
       }
