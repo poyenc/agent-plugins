@@ -5,15 +5,26 @@ SCRIPT="$HERE/../scripts/bg-timeout-cap.sh"
 PASS=0; FAIL=0
 assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; echo "    exp:[$2] act:[$3]"; FAIL=$((FAIL+1)); fi; }
 
-# $1 = command, $2 = run_in_background ("" for omitted, else "true"/"false")
+# Builds a tool_input payload. Args (all optional, pass "" to omit/skip):
+#   $1 = command (string)
+#   $2 = run_in_background ("" omit, else "true"/"false")
+#   $3 = timeout ("" omit, "null" for JSON null, else a raw JSON scalar e.g. 3000, 3000.5, "\"3000\"")
+#   $4 = extra field value to attach as tool_input.description (for field-preservation checks), "" to omit
 payload() {
   python3 -c "
 import json, sys
-d = {'tool_input': {'command': sys.argv[1]}}
-if sys.argv[2]:
-    d['tool_input']['run_in_background'] = (sys.argv[2] == 'true')
+cmd, bg, to, extra = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+d = {'tool_input': {'command': cmd}}
+if bg:
+    d['tool_input']['run_in_background'] = (bg == 'true')
+if to == 'null':
+    d['tool_input']['timeout'] = None
+elif to:
+    d['tool_input']['timeout'] = json.loads(to)
+if extra:
+    d['tool_input']['description'] = extra
 print(json.dumps(d))
-" "$1" "$2"
+" "$1" "$2" "$3" "$4"
 }
 
 # $1 = JSON payload, remaining args (optional) = NAME=VALUE env overrides for this one call.
@@ -23,176 +34,124 @@ run_hook() {
 }
 
 is_block() { printf '%s' "$1" | jq -r '.decision == "block"' 2>/dev/null; }
+rewritten_command() { printf '%s' "$1" | jq -r '.hookSpecificOutput.updatedInput.command // empty' 2>/dev/null; }
 
 echo "== foreground calls are entirely out of scope for this hook =="
 
-out=$(run_hook "$(payload "./build.sh" "")")
+out=$(run_hook "$(payload "./build.sh" "" "" "")")
 assert_eq "run_in_background omitted: allowed (no output)" "" "$out"
 
-out=$(run_hook "$(payload "./build.sh" "false")")
+out=$(run_hook "$(payload "./build.sh" "false" "" "")")
 assert_eq "run_in_background:false: allowed (no output)" "" "$out"
 
-echo "== background, no timeout wrapper at all =="
+echo "== background call must declare a timeout (same field foreground already requires) =="
 
-out=$(run_hook "$(payload "./build.sh" "true")")
-assert_eq "no wrapper: blocked" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload "./build.sh" "true" "" "")")
+assert_eq "no timeout field at all: blocked" "true" "$(is_block "$out")"
 assert_eq "block reason explains the enforcement gap" "true" "$(printf '%s' "$out" | jq -R 'test("NOT enforced for run_in_background")' 2>/dev/null)"
-assert_eq "block reason gives a concrete wrap example" "true" "$(printf '%s' "$out" | jq -R 'test("timeout 300 bash script\\.sh")' 2>/dev/null)"
 assert_eq "block reason states the cap" "true" "$(printf '%s' "$out" | jq -R 'test("600 seconds")' 2>/dev/null)"
 
-out=$(run_hook "$(payload "cd /tmp && timeout 300 ./build.sh" "true")")
-assert_eq "wrapper not at the start of the command (chained): blocked, same as no wrapper" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload "./build.sh" "true" "null" "")")
+assert_eq "timeout:null: blocked, same as absent" "true" "$(is_block "$out")"
 
-out=$(run_hook "$(payload "FOO=bar timeout 300 ./build.sh" "true")")
-assert_eq "wrapper prefixed by an env var assignment: blocked, same as no wrapper" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload "./build.sh" "true" "\"3000\"" "")")
+assert_eq "timeout as a JSON string (schema violation): blocked, not coerced" "true" "$(is_block "$out")"
+assert_eq "...block reason explains it's not a valid integer ms value" "true" "$(printf '%s' "$out" | jq -R 'test("valid non-negative integer millisecond")' 2>/dev/null)"
 
-echo "== background, wrapped, within the default 600-second cap =="
+out=$(run_hook "$(payload "./build.sh" "true" "-5" "")")
+assert_eq "negative timeout: blocked" "true" "$(is_block "$out")"
 
-out=$(run_hook "$(payload "timeout 300 ./build.sh" "true")")
-assert_eq "bare seconds under cap: allowed (no output)" "" "$out"
+out=$(run_hook "$(payload "./build.sh" "true" "3000.5" "")")
+assert_eq "non-integer (fractional ms) timeout: blocked" "true" "$(is_block "$out")"
 
-out=$(run_hook "$(payload "timeout 600 ./build.sh" "true")")
-assert_eq "bare seconds at cap: allowed (cap is inclusive, no output)" "" "$out"
-
-out=$(run_hook "$(payload "timeout 9m ./build.sh" "true")")
-assert_eq "9m (540s) under cap: allowed (no output)" "" "$out"
-
-echo "== background, wrapped, over the default 600-second cap =="
-
-out=$(run_hook "$(payload "timeout 900 ./build.sh" "true")")
-assert_eq "bare seconds over cap: blocked" "true" "$(is_block "$out")"
-assert_eq "block reason states the declared value and unit" "true" "$(printf '%s' "$out" | jq -R 'test("timeout:900 ")' 2>/dev/null)"
-assert_eq "block reason states seconds equivalent" "true" "$(printf '%s' "$out" | jq -R 'test("\\(900 seconds\\)")' 2>/dev/null)"
-assert_eq "block reason states the cap" "true" "$(printf '%s' "$out" | jq -R 'test("600 second cap")' 2>/dev/null)"
-
-out=$(run_hook "$(payload "timeout 30m ./build.sh" "true")")
-assert_eq "30m (1800s) over cap: blocked" "true" "$(is_block "$out")"
-assert_eq "minutes converted to seconds in the reason" "true" "$(printf '%s' "$out" | jq -R 'test("\\(1800 seconds\\)")' 2>/dev/null)"
-
-out=$(run_hook "$(payload "timeout 1h ./build.sh" "true")")
-assert_eq "1h (3600s) over cap: blocked" "true" "$(is_block "$out")"
-assert_eq "hours converted to seconds in the reason" "true" "$(printf '%s' "$out" | jq -R 'test("\\(3600 seconds\\)")' 2>/dev/null)"
-
-out=$(run_hook "$(payload "timeout 1d ./build.sh" "true")")
-assert_eq "1d (86400s) over cap: blocked" "true" "$(is_block "$out")"
-assert_eq "days converted to seconds in the reason" "true" "$(printf '%s' "$out" | jq -R 'test("\\(86400 seconds\\)")' 2>/dev/null)"
-
-echo "== basic DURATION grammar: zero, decimals, oversized numerals, inf =="
-
-out=$(run_hook "$(payload "timeout 0 ./build.sh" "true")")
-assert_eq "timeout 0: blocked (GNU timeout: 0 disables the timeout entirely)" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload "./build.sh" "true" "0" "")")
+assert_eq "timeout:0: blocked (GNU timeout: 0 disables the timeout entirely)" "true" "$(is_block "$out")"
 assert_eq "zero block reason explains it disables the timeout" "true" "$(printf '%s' "$out" | jq -R 'test("disables the timeout entirely")' 2>/dev/null)"
 
-out=$(run_hook "$(payload "timeout 0s ./build.sh" "true")")
-assert_eq "timeout 0s: blocked, same as bare 0" "true" "$(is_block "$out")"
+echo "== within cap: rewritten to timeout SECs bash -c '...', no permissionDecision, other"
+echo "   tool_input fields preserved byte-for-byte =="
 
-out=$(run_hook "$(payload "timeout 0.0 ./build.sh" "true")")
-assert_eq "timeout 0.0: blocked, same as bare 0" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload "./build.sh" "true" "3000" "")")
+assert_eq "3000ms (3s) under cap: rewritten command is 'timeout 3.000s bash -c ...'" "timeout 3.000s bash -c './build.sh'" "$(rewritten_command "$out")"
+assert_eq "hookEventName is PreToolUse" "true" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.hookEventName == "PreToolUse"')"
+assert_eq "permissionDecision is NOT set (normal permission flow applies)" "true" "$(printf '%s' "$out" | jq -r '(.hookSpecificOutput | has("permissionDecision")) | not')"
+assert_eq "run_in_background preserved as true in updatedInput" "true" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.updatedInput.run_in_background == true')"
+assert_eq "original timeout field preserved unchanged" "true" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.updatedInput.timeout == 3000')"
 
-out=$(run_hook "$(payload "timeout 300.5 ./build.sh" "true")")
-assert_eq "decimal duration under cap: allowed (no output)" "" "$out"
+out=$(run_hook "$(payload "./build.sh" "true" "3000" "a description field")")
+assert_eq "an unrelated extra field (description) survives byte-for-byte" "a description field" "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.updatedInput.description')"
 
-out=$(run_hook "$(payload "timeout 999.5 ./build.sh" "true")")
-assert_eq "decimal duration over cap: blocked" "true" "$(is_block "$out")"
-assert_eq "decimal block reason states the declared value" "true" "$(printf '%s' "$out" | jq -R 'test("timeout:999\\.5 ")' 2>/dev/null)"
+out=$(run_hook "$(payload "./build.sh" "true" "1" "")")
+assert_eq "1ms: sub-second precision preserved, not floored to 0s" "timeout 0.001s bash -c './build.sh'" "$(rewritten_command "$out")"
 
-out=$(run_hook "$(payload "timeout 12345678901 ./build.sh" "true")")
-assert_eq "11-digit numeral, obviously over any cap: blocked, not failed open" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload "./build.sh" "true" "1500" "")")
+assert_eq "1500ms: 1.5s, not floored to 1s" "timeout 1.500s bash -c './build.sh'" "$(rewritten_command "$out")"
 
-out=$(run_hook "$(payload "timeout 99999999999d ./build.sh" "true")")
-assert_eq "huge numeral with a day suffix: blocked, not failed open" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload "./build.sh" "true" "600000" "")")
+assert_eq "600000ms (600s) at cap: allowed (cap is inclusive)" "timeout 600.000s bash -c './build.sh'" "$(rewritten_command "$out")"
 
-out=$(run_hook "$(payload "timeout inf ./build.sh" "true")")
-assert_eq "timeout inf: blocked (unbounded duration)" "true" "$(is_block "$out")"
-assert_eq "inf block reason explains it's unbounded" "true" "$(printf '%s' "$out" | jq -R 'test("unbounded duration")' 2>/dev/null)"
+echo "== over cap: BLOCKED, not silently clamped =="
 
-out=$(run_hook "$(payload "timeout infinity ./build.sh" "true")")
-assert_eq "timeout infinity: blocked, same as inf" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload "./build.sh" "true" "900000" "")")
+assert_eq "900000ms (900s) over cap: blocked" "true" "$(is_block "$out")"
+assert_eq "block reason states the declared ms and seconds" "true" "$(printf '%s' "$out" | jq -R 'test("timeout:900000ms \\(900 seconds\\)")' 2>/dev/null)"
+assert_eq "block reason states the cap" "true" "$(printf '%s' "$out" | jq -R 'test("600 second cap")' 2>/dev/null)"
+assert_eq "over-cap case produces NO updatedInput (not a silent clamp)" "" "$(rewritten_command "$out")"
 
-out=$(run_hook "$(payload "timeout INF ./build.sh" "true")")
-assert_eq "timeout INF (uppercase): blocked, case-insensitive" "true" "$(is_block "$out")"
+echo "== escaping correctness: the rewritten command actually round-trips through real bash =="
 
-echo "== scope: only DURATION is recognized, no GNU timeout options at all -- a command using"
-echo "   -k/-s/--foreground/etc isn't recognized as a wrapper (false block, safe direction) =="
+run_wrapped_and_capture() {
+  # $1 = wrapped command string (as the hook would produce it). Executes it for real and
+  # prints stdout, to prove the escaping reconstructs the EXACT original argument, not just
+  # that the string looks plausible.
+  bash -c "$1"
+}
 
-out=$(run_hook "$(payload "timeout -k 10 300 ./build.sh" "true")")
-assert_eq "timeout -k 10 300 ...: options not supported, blocked same as no wrapper" "true" "$(is_block "$out")"
+quote_cmd=$(printf 'echo "has a single quote%s"' "'")
+out=$(run_hook "$(payload "$quote_cmd" "true" "3000" "")")
+wrapped=$(rewritten_command "$out")
+assert_eq "command containing a literal single quote: wrapped command executes and reproduces the original output" "has a single quote'" "$(run_wrapped_and_capture "$wrapped")"
 
-out=$(run_hook "$(payload "timeout -s KILL 300 ./build.sh" "true")")
-assert_eq "timeout -s KILL 300 ...: options not supported, blocked same as no wrapper" "true" "$(is_block "$out")"
+multiline_cmd=$'echo first\necho second'
+out=$(run_hook "$(payload "$multiline_cmd" "true" "3000" "")")
+wrapped=$(rewritten_command "$out")
+assert_eq "a command containing a real newline (e.g. multiple statements): both lines execute" $'first\nsecond' "$(run_wrapped_and_capture "$wrapped")"
 
-out=$(run_hook "$(payload "timeout --foreground 300 ./build.sh" "true")")
-assert_eq "timeout --foreground 300 ...: options not supported, blocked same as no wrapper" "true" "$(is_block "$out")"
+heredoc_cmd=$'cat <<EOF\nline one\nline two\nEOF'
+out=$(run_hook "$(payload "$heredoc_cmd" "true" "3000" "")")
+wrapped=$(rewritten_command "$out")
+assert_eq "a heredoc: executes correctly through the rewritten wrapper (no longer banned)" $'line one\nline two' "$(run_wrapped_and_capture "$wrapped")"
 
-echo "== owner-scoped decision: conservative LITERAL separator scan, no quote-awareness at all --"
-echo "   a command merely CONTAINING one of these characters blocks, even inside quotes =="
+echo "== the hazards the old literal-scan design banned are now structurally bounded instead,"
+echo "   not banned -- not re-tested for timing here (covered live in the session), just that"
+echo "   these forms are no longer rejected and still execute correctly =="
 
-out=$(run_hook "$(payload "timeout 300 first; second" "true")")
-assert_eq "semicolon sequencing: blocked" "true" "$(is_block "$out")"
-assert_eq "block reason explains the separator/script-file guidance" "true" "$(printf '%s' "$out" | jq -R 'test("shell separator")' 2>/dev/null)"
-assert_eq "...and recommends a script file as the escape hatch" "true" "$(printf '%s' "$out" | jq -R 'test("timeout 300 bash script\\.sh")' 2>/dev/null)"
+out=$(run_hook "$(payload "echo first; echo second" "true" "3000" "")")
+wrapped=$(rewritten_command "$out")
+assert_eq "semicolon-separated commands: no longer blocked, both execute" $'first\nsecond' "$(run_wrapped_and_capture "$wrapped")"
 
-out=$(run_hook "$(payload "timeout 300 first && second" "true")")
-assert_eq "&& chaining: blocked" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload 'echo `echo sub`' "true" "3000" "")")
+wrapped=$(rewritten_command "$out")
+assert_eq "backtick substitution: no longer blocked, substitutes correctly" "sub" "$(run_wrapped_and_capture "$wrapped")"
 
-out=$(run_hook "$(payload "timeout 300 first || second" "true")")
-assert_eq "|| chaining: blocked" "true" "$(is_block "$out")"
-
-out=$(run_hook "$(payload "timeout 300 first | second" "true")")
-assert_eq "pipe: blocked" "true" "$(is_block "$out")"
-
-out=$(run_hook "$(payload "(timeout 300 first); second" "true")")
-assert_eq "subshell parens + semicolon: blocked" "true" "$(is_block "$out")"
-
-multiline_cmd=$'timeout 300 bash -c \'first\nsecond\''
-out=$(run_hook "$(payload "$multiline_cmd" "true")")
-assert_eq "a literal newline anywhere in the string: blocked, no quote-awareness" "true" "$(is_block "$out")"
-
-out=$(run_hook "$(payload "timeout 300 bash -c 'first; second'" "true")")
-assert_eq "a separator INSIDE a quoted bash -c body: still blocked (intentional, no escape hatch)" "true" "$(is_block "$out")"
-
-out=$(run_hook "$(payload "timeout 300 echo 'a;b'" "true")")
-assert_eq "a separator inside a quoted literal argument: still blocked (intentional)" "true" "$(is_block "$out")"
-
-out=$(run_hook "$(payload "timeout 300 bash script.sh" "true")")
-assert_eq "the recommended escape hatch itself (no separators): allowed (no output)" "" "$out"
-
-echo "== backtick substitution and redirections run BEFORE timeout's own exec even starts, so"
-echo "   timeout never bounds them -- verified live: timeout 0.05 cat </tmp/fifo on an unread"
-echo "   FIFO did not time out. Must block the same as a top-level separator =="
-
-out=$(run_hook "$(payload 'timeout 300 echo `second`' "true")")
-assert_eq "backtick command substitution: blocked" "true" "$(is_block "$out")"
-
-out=$(run_hook "$(payload "timeout 300 cat </tmp/fifo" "true")")
-assert_eq "input redirection: blocked" "true" "$(is_block "$out")"
-
-out=$(run_hook "$(payload "timeout 300 cmd >/tmp/out" "true")")
-assert_eq "output redirection: blocked" "true" "$(is_block "$out")"
-
-out=$(run_hook "$(payload "timeout 300 echo 'a<b'" "true")")
-assert_eq "a redirection-shaped character inside a quoted argument: still blocked (intentional)" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload "echo redirected > /tmp/bg-timeout-cap-test-out.txt; cat /tmp/bg-timeout-cap-test-out.txt; rm -f /tmp/bg-timeout-cap-test-out.txt" "true" "3000" "")")
+wrapped=$(rewritten_command "$out")
+assert_eq "output redirection: no longer blocked, redirects correctly" "redirected" "$(run_wrapped_and_capture "$wrapped")"
 
 echo "== malformed / edge forms =="
 
-out=$(run_hook "$(payload "timeout" "true")")
-assert_eq "bare 'timeout' with nothing after it: blocked (no recognizable wrapper)" "true" "$(is_block "$out")"
-
-out=$(run_hook "$(payload "timeoutsomething 300 ./build.sh" "true")")
-assert_eq "command word merely starting with 'timeout' (not the command itself): blocked, not a real wrapper" "true" "$(is_block "$out")"
-
-out=$(run_hook "$(payload "timeout KILL ./build.sh" "true")")
-assert_eq "token isn't a valid duration at all: blocked, not failed open" "true" "$(is_block "$out")"
+out=$(run_hook "$(payload "" "true" "3000" "")")
+assert_eq "empty command: allowed (no output) -- nothing for this hook to do" "" "$out"
 
 echo "== custom cap via env var =="
 
-out=$(run_hook "$(payload "timeout 300 ./build.sh" "true")" GUARDRAILS_MAX_BG_TIMEOUT_SECONDS=100)
+out=$(run_hook "$(payload "./build.sh" "true" "3000" "")" GUARDRAILS_MAX_BG_TIMEOUT_SECONDS=1)
 assert_eq "custom lower cap: a timeout that passed the default now blocks" "true" "$(is_block "$out")"
 
-out=$(run_hook "$(payload "timeout 900 ./build.sh" "true")" GUARDRAILS_MAX_BG_TIMEOUT_SECONDS=3600)
-assert_eq "custom higher cap: a timeout that failed the default now passes (no output)" "" "$out"
+out=$(run_hook "$(payload "./build.sh" "true" "900000" "")" GUARDRAILS_MAX_BG_TIMEOUT_SECONDS=3600)
+assert_eq "custom higher cap: a timeout that failed the default now passes" "timeout 900.000s bash -c './build.sh'" "$(rewritten_command "$out")"
 
-out=$(run_hook "$(payload "timeout 900 ./build.sh" "true")" GUARDRAILS_MAX_BG_TIMEOUT_SECONDS=not-a-number)
+out=$(run_hook "$(payload "./build.sh" "true" "900000" "")" GUARDRAILS_MAX_BG_TIMEOUT_SECONDS=not-a-number)
 assert_eq "malformed cap env var: falls back to default, still blocks" "true" "$(is_block "$out")"
 assert_eq "malformed cap env var: reason uses the default cap value" "true" "$(printf '%s' "$out" | jq -R 'test("600 second cap")' 2>/dev/null)"
 
