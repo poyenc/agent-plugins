@@ -7,7 +7,14 @@
 # agent prompt failing with a diagnostic on stderr, 2 = simulate it failing with NOTHING on
 # stderr), MOCK_TARGET_KIND (agent get's reported agent kind, default claude), MOCK_TARGET_PANE
 # (agent get's reported pane id, default wK:p1), MOCK_SCREEN (file served by pane read; unset =
-# empty screen), MOCK_FAIL_READ (1 = pane read fails).
+# empty screen), MOCK_FAIL_READ (1 = EVERY pane read fails, unconditionally), MOCK_FAIL_READ_AT
+# (optional: only the Nth "pane read" call fails -- a ONE-TIME transient failure, simulating a
+# blip mid-retry rather than a permanently broken read), MOCK_SCREEN_CLEAR_AFTER (optional: serve
+# MOCK_SCREEN for this many "pane read" calls, then an empty screen after that -- simulates the
+# target finishing typing partway through abort_if_target_typing's retry loop). MOCK_FAIL_READ_AT
+# and MOCK_SCREEN_CLEAR_AFTER share one call counter and so can be combined in one test case (e.g.
+# "draft, transient read failure, draft again, clears"); both need MOCK_SCREEN_COUNT_FILE, a fresh
+# counter file per test case, since each invocation is its own process.
 set -uo pipefail
 printf '%s\n' "${*//$'\n'/\\n}" >> "$MOCK_CALLS"   # collapse embedded newlines: one call = one log line
 case "$1 $2" in
@@ -16,6 +23,12 @@ case "$1 $2" in
     [ "${MOCK_FAIL_READ:-0}" = 1 ] && exit 1
     # honor --lines N like the real thing: only the last N lines of the screen
     n=1000; while [ $# -gt 0 ]; do [ "$1" = "--lines" ] && { n="$2"; break; }; shift; done
+    if [ -n "${MOCK_FAIL_READ_AT:-}${MOCK_SCREEN_CLEAR_AFTER:-}" ]; then
+      count=$(( $(cat "$MOCK_SCREEN_COUNT_FILE" 2>/dev/null || echo 0) + 1 ))
+      printf '%s' "$count" > "$MOCK_SCREEN_COUNT_FILE"
+      [ -n "${MOCK_FAIL_READ_AT:-}" ] && [ "$count" = "$MOCK_FAIL_READ_AT" ] && exit 1
+      [ -n "${MOCK_SCREEN_CLEAR_AFTER:-}" ] && [ "$count" -gt "$MOCK_SCREEN_CLEAR_AFTER" ] && exit 0
+    fi
     [ -n "${MOCK_SCREEN:-}" ] && tail -n "$n" "$MOCK_SCREEN" ;;
   "agent prompt")
     [ "${MOCK_FAIL_SEND:-0}" = 1 ] && { echo '{"error":{"code":"agent_prompt_stalled"}}' >&2; exit 1; }

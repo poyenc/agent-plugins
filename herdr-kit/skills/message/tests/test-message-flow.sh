@@ -7,7 +7,7 @@ assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); el
 
 MOCK_CALLS=$(mktemp)
 export MOCK_CALLS PATH="$HERE/mock:$PATH"
-setup() { : > "$MOCK_CALLS"; export HERDR_ENV=1 HERDR_PANE_ID=wF:p1; unset MOCK_SENDER_NAME MOCK_FAIL_SEND MOCK_TARGET_KIND MOCK_TARGET_PANE MOCK_SCREEN MOCK_FAIL_READ; }
+setup() { : > "$MOCK_CALLS"; export HERDR_ENV=1 HERDR_PANE_ID=wF:p1 HERDR_MESSAGE_TEST_POLL_SECONDS=0; unset MOCK_SENDER_NAME MOCK_FAIL_SEND MOCK_TARGET_KIND MOCK_TARGET_PANE MOCK_SCREEN MOCK_FAIL_READ MOCK_FAIL_READ_AT MOCK_SCREEN_CLEAR_AFTER MOCK_SCREEN_COUNT_FILE; }
 
 setup
 export MOCK_SENDER_NAME=plugin-writer
@@ -143,6 +143,7 @@ assert_eq "command rejects --callback (no reply path for a raw CLI command)" "1"
 # --- typing guard: refuse (exit 75) when the target's prompt box holds unsent text ------------------
 R='───────────────────────────────────────────────────────'
 SCR=$(mktemp)
+CNT=$(mktemp)
 sent(){ grep -c 'agent prompt' "$MOCK_CALLS"; }
 
 setup; printf '%s\n❯ half typed draft\n%s\n  footer\n' "$R" "$R" > "$SCR"; export MOCK_SCREEN="$SCR"
@@ -150,6 +151,32 @@ out=$(bash "$S/herdr-message" send wK:p1 "hi" 2>&1); rc=$?
 assert_eq "send to a claude target with a draft exits 75" "75" "$rc"
 assert_eq "send to a target with a draft sends nothing" "0" "$(sent)"
 assert_eq "the refusal says someone is typing and to retry later" "1" "$(printf '%s' "$out" | grep -c 'someone is typing there')"
+assert_eq "a draft that never clears is checked 5 times (the full internal retry budget), not just once" "5" "$(grep -c 'pane read' "$MOCK_CALLS")"
+
+# the target finishes typing partway through the retry loop -- the 3rd check (of 5) sees a clear
+# screen, so the send proceeds instead of giving up after the 1st check.
+setup; : > "$CNT"; export MOCK_SCREEN="$SCR" MOCK_SCREEN_CLEAR_AFTER=2 MOCK_SCREEN_COUNT_FILE="$CNT"
+out=$(bash "$S/herdr-message" send wK:p1 "hi" 2>&1); rc=$?
+assert_eq "a draft that clears partway through the retry loop: send eventually succeeds" "0" "$rc"
+assert_eq "...and the message actually went out" "1" "$(sent)"
+assert_eq "...after retrying (not sent on the very first, still-typing check)" "3" "$(grep -c 'pane read' "$MOCK_CALLS")"
+
+# Regression: once a draft HAS been positively observed, a later attempt that merely FAILS to
+# re-verify (a transient pane-read error, not a confirmed-clear screen) must not be mistaken for
+# "cleared" -- it has to consume a retry and keep waiting, same as seeing the draft again.
+setup; : > "$CNT"; export MOCK_SCREEN="$SCR" MOCK_FAIL_READ_AT=2 MOCK_SCREEN_COUNT_FILE="$CNT"
+out=$(bash "$S/herdr-message" send wK:p1 "hi" 2>&1); rc=$?
+assert_eq "draft seen, then a transient read failure, draft still there after: still exits 75 (not sent)" "75" "$rc"
+assert_eq "...sends nothing despite the transient failure" "0" "$(sent)"
+assert_eq "...all 5 checks still happen (the failed one didn't short-circuit the loop)" "5" "$(grep -c 'pane read' "$MOCK_CALLS")"
+
+# Same transient-failure scenario, but the draft genuinely clears afterward -- the send should
+# still succeed (the earlier failure must not have poisoned the final confirmed-clear result).
+setup; : > "$CNT"; export MOCK_SCREEN="$SCR" MOCK_FAIL_READ_AT=2 MOCK_SCREEN_CLEAR_AFTER=3 MOCK_SCREEN_COUNT_FILE="$CNT"
+out=$(bash "$S/herdr-message" send wK:p1 "hi" 2>&1); rc=$?
+assert_eq "draft seen, transient read failure, then it genuinely clears: send still succeeds" "0" "$rc"
+assert_eq "...and the message actually went out" "1" "$(sent)"
+
 setup; export MOCK_SCREEN="$SCR"
 bash "$S/herdr-message" reply wK:p1 abc123 "hi" >/dev/null 2>&1; assert_eq "reply to a target with a draft exits 75" "75" "$?"
 assert_eq "reply to a target with a draft sends nothing" "0" "$(sent)"
@@ -190,7 +217,7 @@ setup; { printf 'older output\n%s\n' "$RA"; printf '\033[0m\033[38;2;153;153;153
 bash "$S/herdr-message" send wK:p1 "hi" >/dev/null 2>&1; assert_eq "claude with normal-colored typed text in the ANSI box is refused" "75" "$?"
 assert_eq "nothing is sent over a typed ANSI draft" "0" "$(sent)"
 
-rm -f "$SCR"
+rm -f "$SCR" "$CNT"
 
 rm -f "$MOCK_CALLS"
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
