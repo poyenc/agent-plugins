@@ -145,13 +145,13 @@ assert_eq "empty command: allowed (no output) -- nothing for this hook to do" ""
 
 echo "== custom cap via env var =="
 
-out=$(run_hook "$(payload "./build.sh" "true" "3000" "")" GUARDRAILS_MAX_BG_TIMEOUT_SECONDS=1)
+out=$(run_hook "$(payload "./build.sh" "true" "3000" "")" GUARDRAILS_MAX_BACKGROUND_TIMEOUT_SECONDS=1)
 assert_eq "custom lower cap: a timeout that passed the default now blocks" "true" "$(is_block "$out")"
 
-out=$(run_hook "$(payload "./build.sh" "true" "900000" "")" GUARDRAILS_MAX_BG_TIMEOUT_SECONDS=3600)
+out=$(run_hook "$(payload "./build.sh" "true" "900000" "")" GUARDRAILS_MAX_BACKGROUND_TIMEOUT_SECONDS=3600)
 assert_eq "custom higher cap: a timeout that failed the default now passes" "timeout 900.000s bash -c './build.sh'" "$(rewritten_command "$out")"
 
-out=$(run_hook "$(payload "./build.sh" "true" "900000" "")" GUARDRAILS_MAX_BG_TIMEOUT_SECONDS=not-a-number)
+out=$(run_hook "$(payload "./build.sh" "true" "900000" "")" GUARDRAILS_MAX_BACKGROUND_TIMEOUT_SECONDS=not-a-number)
 assert_eq "malformed cap env var: falls back to default, still blocks" "true" "$(is_block "$out")"
 assert_eq "malformed cap env var: reason uses the default cap value" "true" "$(printf '%s' "$out" | jq -R 'test("600 second cap")' 2>/dev/null)"
 

@@ -67,7 +67,7 @@ run_in_background=$(printf '%s' "$payload" | jq -r '.tool_input.run_in_backgroun
 cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')
 [ -n "$cmd" ] || exit 0
 
-cap_s=$(safe_cap "${GUARDRAILS_MAX_BG_TIMEOUT_SECONDS:-600}" 600)
+cap_s=$(safe_cap "${GUARDRAILS_MAX_BACKGROUND_TIMEOUT_SECONDS:-600}" 600)
 
 if [ "$(timeout_declared "$payload")" != "true" ]; then
   printf '{"decision":"block","reason":"Backgrounded commands must declare a timeout (the SAME ms field already required for foreground calls) so this hook can wrap the command in the shell'"'"'s own timeout -- the field is accepted but NOT enforced for run_in_background:true calls on its own (verified live: a declared timeout:3000ms call still ran to completion ~15s later). Set timeout to a value <= %s seconds (in ms)."}\n' "$cap_s"
