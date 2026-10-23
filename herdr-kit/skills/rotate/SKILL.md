@@ -102,11 +102,9 @@ The dispatcher detects the kind and forwards to `herdr-rotate-<kind>`; you never
    + capture argv + live-detect model/effort + apply overrides; re-check the session tag right before the destructive
    step; `/quit`; confirm the pane free; `herdr agent start` same name+pane replaying argv;
    poll to idle, verify -- **kickoff is withheld if verification fails**. Verification is
-   argv element-by-element for claude/codex; **pi is different** -- it verifies the live
-   model/effort (via the same `/thinking`+`/model` screen-reading), not argv. Current Linux
-   (fork) pi preserves its argv, so its launch flags are captured and replayed; but macOS/older
-   builds clobber it (`process.title`), so argv is not a reliable cross-platform verify source
-   and only the live model/effort is verified for pi.
+   the relaunched process's model/effort argv values against the intended ones (all kinds). The
+   `/thinking`+`/model` screen reading (pi) only detects a mid-session override before the
+   exit, to carry it into the relaunch; it is not used to verify.
 
 Nothing is parsed from header/footer/statusline, so it is robust to terminal width, though a
 narrow-enough pane can still make live model/effort detection miss (fails safe: falls back

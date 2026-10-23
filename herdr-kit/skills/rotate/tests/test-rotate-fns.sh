@@ -394,16 +394,6 @@ assert_eq "value_of_kv recognizes codex's attached -cKEY=VALUE form" "low" \
 assert_eq "value_of_kv: last occurrence wins across mixed two-token/attached forms" "high" \
   "$(value_of_kv model_reasoning_effort -c model_reasoning_effort=low -cmodel_reasoning_effort=high)"
 
-# pi verify: if neither the captured argv nor a live detection ever produced a model/effort
-# to check against, "intended" has nothing to compare the fresh session's live state to --
-# this must fail closed, not report a vacuous pass just because detect_override itself
-# "succeeded" (with empty DETECTED_MODEL/DETECTED_EFFORT).
-MODEL_FLAG=--model; EFFORT_FLAG=--thinking
-herdr(){ case "$1 $2" in "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';; *) echo "{}";; esac; }
-detect_override(){ DETECTED_MODEL="amd-gateway/unexpected"; DETECTED_EFFORT="max"; return 0; }
-assert_eq "pi verify fails closed when intended has no model/effort" "1" "$(rc verify lead wG:p4 pi -- --verbose)"
-unset -f detect_override 2>/dev/null || true
-
 # kickoff: default (no msg given at all -> the built-in default message)
 KOLOG=$(mktemp)
 herdr(){ case "$1 $2" in "agent prompt") shift; printf '%s\n' "$*" >> "$KOLOG";; esac; echo '{"result":{}}'; }

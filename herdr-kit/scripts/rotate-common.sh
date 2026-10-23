@@ -501,42 +501,7 @@ verify() {
   done
   case "$st" in idle|done) ;; *) note "verify: agent not ready ($st)"; return 1 ;; esac
 
-  # pi's argv is not a reliable source to verify against across platforms: on macOS (and older
-  # builds) pi rewrites its process title on startup (process.title = APP_NAME), overwriting the
-  # /proc/pid/cmdline memory `herdr pane process-info` reads from, so capture_argv sees only the
-  # bare binary name. (Linux fork builds now preserve argv via /proc/self/comm -- see
-  # capture_argv -- but a bare `pi` launch still carries no model/effort, and this branch must
-  # stay correct on the clobbered platforms too.) So pi verifies the live model/effort via the
-  # same screen-reading detector used to capture them, rather than comparing argv. Flags beyond
-  # model/effort are not verified here.
-  if [ "$kind" = pi ] && declare -F detect_override >/dev/null 2>&1; then
-    local want_model want_effort
-    want_model=$(value_of_flag "$MODEL_FLAG" "${intended[@]}")
-    want_effort=$(value_of_flag "$EFFORT_FLAG" "${intended[@]}")
-    # If neither the original argv nor a live pre-exit detection ever produced a model/effort
-    # value, "intended" has nothing to compare the fresh session against -- pi has no OTHER
-    # verifiable signal (see the argv note above), so this would otherwise be a vacuous pass.
-    # Fail closed instead of reporting success with nothing actually checked.
-    if [ -z "$want_model" ] || [ -z "$want_effort" ]; then
-      note "verify: pi has no intended model/effort to check against (neither captured nor detected) -- pi cannot verify anything else for this kind, so treating as unverified rather than reporting a vacuous pass"
-      return 1
-    fi
-    # Explicit check, not a bare statement: verify() itself is called as `verify ... || vrc=$?`
-    # by run_finish, which per POSIX/bash disables set -e for this WHOLE call chain (not just
-    # verify's own top-level exit code) -- a close_modal failure inside detect_override would
-    # otherwise be silently swallowed here instead of failing verification.
-    detect_override "$pane" || { note "verify: live detection failed to complete cleanly (e.g. a picker wouldn't close) -- treating as unverified"; return 1; }
-    if [ "$DETECTED_MODEL" != "$want_model" ]; then
-      note "verify: live model '$DETECTED_MODEL' != intended '$want_model'"; return 1
-    fi
-    if [ "$DETECTED_EFFORT" != "$want_effort" ]; then
-      note "verify: live effort '$DETECTED_EFFORT' != intended '$want_effort'"; return 1
-    fi
-    note "verify OK (pi: live model/effort matched; other flags are not verifiable for this kind)"
-    return 0
-  fi
-
-  # Only model/effort are ever verified here, the same scope as pi's branch above. Earlier
+  # Only model/effort are ever verified here. Earlier
   # revisions of this check compared the ENTIRE argv (an exact-suffix match tolerating a leading
   # "prefix"), reasoning that a herdr-level default config always lands there -- confirmed live,
   # but for the wrong reason: what was actually observed is this operator's own shell alias
@@ -559,8 +524,7 @@ verify() {
   fi
   # Only fail when this tool actually asked for a specific model/effort and the live session
   # doesn't show it -- a rotation that never specified either has nothing of ours to confirm,
-  # and that's a legitimate outcome, not a signal to block on (unlike pi's branch above, which
-  # fails closed only because it has no OTHER verification signal at all for that kind).
+  # and that's a legitimate outcome, not a signal to block on.
   if [ -n "$want_model" ] && [ "$actual_model" != "$want_model" ]; then
     note "verify: actual model '$actual_model' != intended '$want_model'"; return 1
   fi
@@ -713,7 +677,7 @@ resolve_and_prepare() {
         # default_model/default_effort may be empty, and the differs-from-default gate below would
         # then never promote ANYTHING for pi, leaving OVERRIDE_MODEL/OVERRIDE_EFFORT empty and
         # tripping run_finish's pi preflight (which requires both). detect_override is pi's live
-        # source of truth here (same reasoning as verify()'s pi branch and that preflight), so any
+        # source of truth here (same reasoning as run_finish's pi preflight), so any
         # detected value is promoted unconditionally instead.
         [ -z "$OVERRIDE_MODEL" ] && [ -n "$DETECTED_MODEL" ] && OVERRIDE_MODEL="$DETECTED_MODEL" && note "detected live model: $DETECTED_MODEL"
         [ -z "$OVERRIDE_EFFORT" ] && [ -n "$DETECTED_EFFORT" ] && OVERRIDE_EFFORT="$DETECTED_EFFORT" && note "detected live effort: $DETECTED_EFFORT"
@@ -895,10 +859,9 @@ run_finish() {
     'first(.result.agents[] | select(.name==$n and .pane_id!=$p)) | .pane_id // empty') || die "agent list failed"
   [ -z "$collision" ] || die "name '$ROTATE_NAME' is already used by a live agent in $collision — pick a different --name"
 
-  # Pi has no other way to verify a rotation (see verify()'s pi branch) -- if neither the
-  # original argv nor live detection ever produced a model/effort value, there is nothing to
-  # confirm the fresh session against, so this must be caught HERE, before anything
-  # destructive, not left to be discovered by verify() after the old agent is already gone.
+  # If neither the original argv nor live detection ever produced a model/effort value for pi,
+  # the relaunch would be a bare `pi` with nothing for verify() to confirm, so this must be
+  # caught HERE, before anything destructive.
   if [ "$ROTATE_KIND" = pi ]; then
     local pi_want_model pi_want_effort
     pi_want_model=$(value_of_flag "$MODEL_FLAG" "${intended[@]}")

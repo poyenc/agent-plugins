@@ -105,9 +105,8 @@ assert_eq "failed kickoff send is non-zero, not silent success" "1" "$?"
 assert_eq "failed kickoff still relaunched (not a verify/pre-flight failure)" "1" "$(grep -c 'agent start' "$MOCK_CALLS")"
 unset MOCK_FAIL_KICKOFF
 
-# 4b. pi verify is screen-based (model/effort), not argv-based -- pi's own process.title rewrite
-# makes argv comparison always fail for pi (confirmed live), so verify() must catch a real
-# mismatch via the live /settings+/model reading instead, and still pass when they genuinely match.
+# 4b. pi verify is argv-based like the other kinds: it must catch a real model/effort mismatch in
+# the relaunched process's argv, and still pass when they genuinely match.
 setup pi worker
 run "$S/herdr-rotate-pi" handoff worker --model amd-gateway/gpt-5.6-terra --effort high >/dev/null 2>&1
 run "$S/herdr-rotate-pi" finish worker "$HANDOFF_PATH" --model amd-gateway/gpt-5.6-terra --effort high >/dev/null 2>&1
