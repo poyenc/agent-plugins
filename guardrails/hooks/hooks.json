@@ -1,5 +1,5 @@
 {
-  "description": "Behavioral guardrails: block sleep, block built-in memory access (read and write), warn on 2+ concurrent crons, block named agents, block oversized Read calls, block direct `herdr agent prompt` calls (steer to the message skill), block direct `herdr pane wait-output`/`herdr agent wait`, block whole-tree `find` scans, block plain whole-tree recursive searches (grep -r/rg/fd/ls -R rooted at / or $HOME), block `timeout`-wrapped ssh/scp/sftp and rsync-over-ssh, block `srun` (steer to salloc once + plain ssh per call), block `docker` on an Alola login node (steer to salloc once + plain ssh per call), block `tail` in follow mode (-f/-F/--follow and abbreviations), which does not exit (steer to run_in_background and a scheduled check instead of polling), block a Bash call with no (or too large a) declared timeout that isn't backgrounded, which can block the turn for a long time (steer to run_in_background plus CronCreate/ScheduleWakeup on Claude Code; the Agent tool plus schedule_prompt on pi, which has no run_in_background of its own).",
+  "description": "Behavioral guardrails: block sleep, block built-in memory access (read and write), warn on 2+ concurrent crons, block named agents, block oversized Read calls, block direct `herdr agent prompt` calls (steer to the message skill), block direct `herdr pane wait-output`/`herdr agent wait`, block whole-tree `find` scans, block plain whole-tree recursive searches (grep -r/rg/fd/ls -R rooted at / or $HOME), block `timeout`-wrapped ssh/scp/sftp and rsync-over-ssh, block `srun` (steer to salloc once + plain ssh per call), block `docker` on an Alola login node (steer to salloc once + plain ssh per call), block `tail` in follow mode (-f/-F/--follow and abbreviations), which does not exit (steer to run_in_background and a scheduled check instead of polling), block a Bash call with no (or too large a) declared timeout that isn't backgrounded, which can block the turn for a long time (steer to run_in_background plus CronCreate/ScheduleWakeup on Claude Code; the Agent tool plus schedule_prompt on pi, which has no run_in_background of its own), block a run_in_background:true call not wrapped in a real `timeout <= cap seconds ...` (the tool's own timeout field is not enforced for background calls).",
   "hooks": {
     "PreToolUse": [
       {
@@ -44,6 +44,10 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/no-long-foreground.sh\""
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bg-timeout-cap.sh\""
           }
         ]
       },
