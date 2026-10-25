@@ -104,6 +104,19 @@ assert_eq "only one rule on screen: cannot tell, no draft" "1" "$(draft "$(print
 assert_eq "no rules at all (empty screen): no draft" "1" "$(draft "")"
 assert_eq "only the LAST two rules count (text above an earlier rule is ignored)" "1" "$(draft "$(printf '%s\ntext in old output\n%s\n❯\n%s\nfooter' "$R" "$R" "$R")")"
 
+# scan_screen_for_draft: pi's schedule_prompt widget (pi-schedule-prompt's CronWidget, placed
+# belowEditor) draws its own rule-bordered box between the editor and the footer whenever any job
+# is loaded, even an already-ended one -- its own top/bottom rules would otherwise become the "last
+# two" and its fixed "Scheduled Prompts" header/rows would be misread as a permanent draft. These
+# cases are real pi screen shapes: editor's own two rules, immediately followed by the widget's own
+# two rules, with zero gap between the editor's bottom rule and the widget's top rule.
+assert_eq "pi: a real draft behind a trailing schedule_prompt widget is still found" "0" \
+  "$(draft "$(printf '%s\nhalf typed draft\n%s\n%s\n Scheduled Prompts (3 jobs)\n ✓ check-logs\n%s\n~/repo (main)\n0.0%%/1.1M (auto)  gpt-6-luna' "$R" "$R" "$R" "$R")")"
+assert_eq "pi: an empty editor behind a trailing schedule_prompt widget is no draft" "1" \
+  "$(draft "$(printf '%s\n\n%s\n%s\n Scheduled Prompts (3 jobs)\n ✓ check-logs\n%s\n~/repo (main)\n0.0%%/1.1M (auto)  gpt-6-luna' "$R" "$R" "$R" "$R")")"
+assert_eq "pi: only the schedule_prompt widget's own rule-pair visible (editor scrolled off) cannot tell, no draft" "1" \
+  "$(draft "$(printf '%s\n Scheduled Prompts (3 jobs)\n ✓ check-logs\n%s\n~/repo (main)' "$R" "$R")")"
+
 # ANSI screens as herdr emits them with --format ansi (sequences captured from real claude and pi panes).
 # claude draws a placeholder hint DIM with the shaded (reverse-video) cursor on its first letter; neither
 # the dim cells nor the cursor cell may count as typed text, while normal-colored text must.
