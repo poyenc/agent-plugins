@@ -188,9 +188,14 @@ _screen_filter() {
 # the session -- even an already-ended one, since disabled jobs are only swept on the next session
 # start. That box's own top/bottom rules would otherwise be mistaken for "the last two rules" here,
 # and its fixed header ("Scheduled Prompts (N jobs)") plus job rows would then be misread as a
-# permanent, unclearable draft. Recognized by that literal header text -- tied to this package's
-# current wording (pi-schedule-prompt's cron-widget.ts); if it's ever renamed, this stops applying
-# and the false positive would resurface. When recognized, the search steps back to the immediately
+# permanent, unclearable draft. Recognized by an EXACT match on that header's line, in either form
+# it can reach here as: "Scheduled Prompts" alone (the real, ANSI-rendered case -- the " (N jobs)"
+# suffix is always dim (SGR 2) in the source and _screen_filter drops dim text) or the full literal
+# "Scheduled Prompts (<N> jobs)" (the plain-text case, with no escapes to strip). An exact match,
+# not a prefix match, so a genuine draft that merely starts with those words (e.g. "Scheduled
+# Prompts are broken; investigating") is never misclassified. Tied to this package's current
+# wording (pi-schedule-prompt's cron-widget.ts); if it's ever renamed, this stops applying and the
+# false positive would resurface. When recognized, the search steps back to the immediately
 # preceding rule-pair (the editor's own), requiring 4 rule lines total; fewer than that falls
 # through to "can't tell" like any other box that can't be found.
 scan_screen_for_draft() {
@@ -207,7 +212,7 @@ scan_screen_for_draft() {
 
   first="${lines[$((r1+1))]#?}"
   first="${first#"${first%%[![:space:]]*}"}"
-  if [[ "$first" == "Scheduled Prompts"* ]]; then
+  if [[ "$first" == "Scheduled Prompts" || "$first" =~ ^Scheduled\ Prompts\ \([0-9]+\ jobs\)$ ]]; then
     [ "$m" -ge 4 ] || return 1
     r1=${rule_idx[$((m-4))]}; r2=${rule_idx[$((m-3))]}
   fi

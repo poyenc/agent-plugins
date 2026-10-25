@@ -117,6 +117,20 @@ assert_eq "pi: an empty editor behind a trailing schedule_prompt widget is no dr
 assert_eq "pi: only the schedule_prompt widget's own rule-pair visible (editor scrolled off) cannot tell, no draft" "1" \
   "$(draft "$(printf '%s\n Scheduled Prompts (3 jobs)\n ✓ check-logs\n%s\n~/repo (main)' "$R" "$R")")"
 
+# Finding: the widget fingerprint must be an EXACT match on the header line, not a prefix match --
+# a genuine draft that happens to start with those same words must never be mistaken for the
+# widget (which would wrongly step back to an older, unrelated box and miss the real draft).
+assert_eq "pi: a real draft starting with the words \"Scheduled Prompts\" is still a draft, not mistaken for the widget" "0" \
+  "$(draft "$(printf '%s\nold stuff\n%s\n%s\nScheduled Prompts are broken; investigating\n%s\nfooter' "$R" "$R" "$R" "$R")")"
+
+# The widget's job-count suffix (" (N jobs)") is always rendered dim in production, and
+# _screen_filter drops dim text entirely -- so the real, ANSI-rendered header line reaching the
+# fingerprint check is "Scheduled Prompts" alone, not the full plain-text form. Confirm that exact,
+# post-filter form is still recognized and the real draft behind it is still found.
+ANSI_WIDGET_HEADER=$(printf '\033[1mScheduled Prompts\033[22m\033[2m (3 jobs)\033[0m')
+assert_eq "pi: ANSI-rendered schedule_prompt widget header (dim job-count suffix stripped) is still recognized" "0" \
+  "$(draft "$(printf '%s\nhalf typed draft\n%s\n%s\n %s\n ✓ check-logs\n%s\n~/repo (main)' "$R" "$R" "$R" "$ANSI_WIDGET_HEADER" "$R")")"
+
 # ANSI screens as herdr emits them with --format ansi (sequences captured from real claude and pi panes).
 # claude draws a placeholder hint DIM with the shaded (reverse-video) cursor on its first letter; neither
 # the dim cells nor the cursor cell may count as typed text, while normal-colored text must.
