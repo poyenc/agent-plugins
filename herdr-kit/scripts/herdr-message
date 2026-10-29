@@ -227,7 +227,7 @@ scan_screen_for_draft() {
   return 1
 }
 
-# Retries internally (up to 5 checks total, 2s apart -- ~8s worst case) rather than making the
+# Retries internally (up to 26 checks total, 2s apart -- ~50s worst case) rather than making the
 # CALLER retry: a caller told to "retry later" observably doesn't reliably do so (a message chain
 # can just break off), whereas a bounded internal loop always resolves one way or the other before
 # returning. This is an internal implementation detail, not something the calling agent needs to
@@ -252,9 +252,14 @@ scan_screen_for_draft() {
 abort_if_target_typing() {
   local target="$1" info kind pane screen attempt saw_typing=0 rc
   # HERDR_MESSAGE_TEST_POLL_SECONDS: private test-only override for the 2s interval, so tests
-  # don't have to burn 8 real seconds per case. Not part of the public interface -- never
+  # don't have to burn 50 real seconds per case. Not part of the public interface -- never
   # documented or referenced outside this file's own test suite.
   local poll_s="${HERDR_MESSAGE_TEST_POLL_SECONDS:-2}"
+  # 26 attempts at a 2s interval = 25 sleeps = ~50s worst-case wait before giving up -- kept
+  # strictly below the 60s foreground-Bash cap (no-long-foreground.sh) with headroom for this
+  # loop's own per-check overhead (an exactly-equal cap was found to have no such headroom:
+  # the overhead of 31 `herdr pane read` calls pushed the real wall-clock time past 60s).
+  local max_attempts=26
 
   info=$(herdr agent get "$target" 2>/dev/null) || return 0
   kind=$(jq -r '.result.agent.agent // empty' <<<"$info" 2>/dev/null) || return 0
@@ -262,7 +267,7 @@ abort_if_target_typing() {
   case "$kind" in claude|pi) ;; *) return 0 ;; esac
   { [ -n "$pane" ] && [ "$pane" != "${HERDR_PANE_ID:-}" ]; } || return 0
 
-  for attempt in 1 2 3 4 5; do
+  for (( attempt=1; attempt<=max_attempts; attempt++ )); do
     # `if screen=$(...)` (not `screen=$(...); rc=$?`) so a failing read doesn't trip `set -e`
     # before rc is even captured.
     if screen=$(herdr pane read "$pane" --source visible --format ansi --lines 500 2>/dev/null); then
@@ -277,9 +282,9 @@ abort_if_target_typing() {
     else
       return 0
     fi
-    [ "$attempt" -lt 5 ] && sleep "$poll_s"
+    [ "$attempt" -lt "$max_attempts" ] && sleep "$poll_s"
   done
-  note "target $target ($pane) still has unsent text in its prompt box after 5 checks -- someone is typing there, so nothing was sent (it would interleave with their input). Retry later: schedule a wake-up (ScheduleWakeup/CronCreate on Claude Code, schedule_prompt on pi) or tell the user. Exit status 75."
+  note "target $target ($pane) still has unsent text in its prompt box after $max_attempts checks -- someone is typing there, so nothing was sent (it would interleave with their input). Retry later: schedule a wake-up (ScheduleWakeup/CronCreate on Claude Code, schedule_prompt on pi) or tell the user. Exit status 75."
   exit 75
 }
 

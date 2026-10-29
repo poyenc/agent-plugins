@@ -111,8 +111,8 @@ assertBlock("find . -name foo (scoped)", "find . -name foo", false, 5);
 
 console.log("== no-long-foreground: pi branch (harness-aware via bash-guardrails.ts's \"harness\":\"pi\" marker) ==");
 assertBlock("no timeout declared: blocked", "echo hi", true);
-assertBlock("timeout:5 (under default 30s cap): allowed", "echo hi", false, 5);
-assertBlock("timeout:9999 (over default 30s cap): blocked", "echo hi", true, 9999);
+assertBlock("timeout:5 (under default 60s cap): allowed", "echo hi", false, 5);
+assertBlock("timeout:9999 (over default 60s cap): blocked", "echo hi", true, 9999);
 {
   const result = call("echo hi");
   const reason = (result?.reason ?? "").toLowerCase();

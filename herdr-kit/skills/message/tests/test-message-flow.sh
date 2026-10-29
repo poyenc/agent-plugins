@@ -151,9 +151,28 @@ out=$(bash "$S/herdr-message" send wK:p1 "hi" 2>&1); rc=$?
 assert_eq "send to a claude target with a draft exits 75" "75" "$rc"
 assert_eq "send to a target with a draft sends nothing" "0" "$(sent)"
 assert_eq "the refusal says someone is typing and to retry later" "1" "$(printf '%s' "$out" | grep -c 'someone is typing there')"
-assert_eq "a draft that never clears is checked 5 times (the full internal retry budget), not just once" "5" "$(grep -c 'pane read' "$MOCK_CALLS")"
+assert_eq "a draft that never clears is checked 26 times (the full internal retry budget), not just once" "26" "$(grep -c 'pane read' "$MOCK_CALLS")"
 
-# the target finishes typing partway through the retry loop -- the 3rd check (of 5) sees a clear
+# End-to-end timing regression (plugin-reviewer, PR #25 re-review): prove, at REAL wall-clock
+# speed -- not scaled down -- that a permanently-busy target's full 26-check retry loop (25 real
+# 2s sleeps = ~50s) still finishes, all 26 reads done and rc=75, strictly within the 60s
+# no-long-foreground.sh foreground cap. A naively scaled-down version of this test (shrinking the
+# poll interval to make it fast) is what missed the ORIGINAL 31-check/60s-cap pairing's lack of
+# headroom, and would just as easily hide it here too in the wrong direction: this loop's own
+# fixed per-iteration overhead (bash/jq subprocess spawns) does NOT shrink along with a
+# compressed interval, so a compressed test exaggerates that overhead's weight relative to the
+# interval and can report a false failure -- measured overhead here is ~8ms/iteration against a
+# real 2s interval (under 1%), nowhere near enough to threaten the 60s cap on its own. This test
+# therefore spends the real ~50s rather than a compressed approximation of it.
+setup; export HERDR_MESSAGE_TEST_POLL_SECONDS=2 MOCK_SCREEN="$SCR"
+start=$SECONDS
+out=$(timeout 59 bash "$S/herdr-message" send wK:p1 "hi" 2>&1); rc=$?
+elapsed=$((SECONDS - start))
+assert_eq "real-time: a permanently busy target still exits 75, not killed by a 59s outer timeout" "75" "$rc"
+assert_eq "real-time: all 26 checks happened" "26" "$(grep -c 'pane read' "$MOCK_CALLS")"
+assert_eq "real-time: finishes with real headroom under the 60s foreground cap" "1" "$([ "$elapsed" -lt 55 ] && echo 1 || echo 0)"
+
+# the target finishes typing partway through the retry loop -- the 3rd check (of 26) sees a clear
 # screen, so the send proceeds instead of giving up after the 1st check.
 setup; : > "$CNT"; export MOCK_SCREEN="$SCR" MOCK_SCREEN_CLEAR_AFTER=2 MOCK_SCREEN_COUNT_FILE="$CNT"
 out=$(bash "$S/herdr-message" send wK:p1 "hi" 2>&1); rc=$?
@@ -168,7 +187,7 @@ setup; : > "$CNT"; export MOCK_SCREEN="$SCR" MOCK_FAIL_READ_AT=2 MOCK_SCREEN_COU
 out=$(bash "$S/herdr-message" send wK:p1 "hi" 2>&1); rc=$?
 assert_eq "draft seen, then a transient read failure, draft still there after: still exits 75 (not sent)" "75" "$rc"
 assert_eq "...sends nothing despite the transient failure" "0" "$(sent)"
-assert_eq "...all 5 checks still happen (the failed one didn't short-circuit the loop)" "5" "$(grep -c 'pane read' "$MOCK_CALLS")"
+assert_eq "...all 26 checks still happen (the failed one didn't short-circuit the loop)" "26" "$(grep -c 'pane read' "$MOCK_CALLS")"
 
 # Same transient-failure scenario, but the draft genuinely clears afterward -- the send should
 # still succeed (the earlier failure must not have poisoned the final confirmed-clear result).

@@ -43,19 +43,19 @@ assert_eq "block reason explains no declared timeout" "true" "$(printf '%s' "$ou
 out=$(run_hook "$(payload "false" "")")
 assert_eq "foreground (explicit false), no timeout: blocked" "true" "$(is_block "$out")"
 
-# 5. Foreground, timeout under the default 30000ms cap -> allowed.
+# 5. Foreground, timeout under the default 60000ms cap -> allowed.
 out=$(run_hook "$(payload "" "5000")")
 assert_eq "foreground, timeout under default cap: allowed (no output)" "" "$out"
 
 # 6. Foreground, timeout exactly at the default cap -> allowed (cap is inclusive).
-out=$(run_hook "$(payload "" "30000")")
+out=$(run_hook "$(payload "" "60000")")
 assert_eq "foreground, timeout at default cap: allowed (no output)" "" "$out"
 
 # 7. Foreground, timeout over the default cap -> blocked, reason states both numbers.
-out=$(run_hook "$(payload "" "60000")")
+out=$(run_hook "$(payload "" "90000")")
 assert_eq "foreground, timeout over default cap: blocked" "true" "$(is_block "$out")"
-assert_eq "block reason states declared timeout" "true" "$(printf '%s' "$out" | jq -R 'test("timeout:60000 ms")' 2>/dev/null)"
-assert_eq "block reason states the cap" "true" "$(printf '%s' "$out" | jq -R 'test("30000 ms cap")' 2>/dev/null)"
+assert_eq "block reason states declared timeout" "true" "$(printf '%s' "$out" | jq -R 'test("timeout:90000 ms")' 2>/dev/null)"
+assert_eq "block reason states the cap" "true" "$(printf '%s' "$out" | jq -R 'test("60000 ms cap")' 2>/dev/null)"
 assert_eq "block reason steers to run_in_background" "true" "$(printf '%s' "$out" | jq -R 'test("run_in_background:true")' 2>/dev/null)"
 assert_eq "block reason steers to CronCreate/ScheduleWakeup" "true" "$(printf '%s' "$out" | jq -R 'test("CronCreate or ScheduleWakeup")' 2>/dev/null)"
 
@@ -64,20 +64,20 @@ out=$(run_hook "$(payload "" "5000")" GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS=1000)
 assert_eq "custom lower cap: foreground timeout above it is blocked" "true" "$(is_block "$out")"
 
 # 9. Custom cap via env var -- raises the ceiling, a timeout that would fail the default cap passes.
-out=$(run_hook "$(payload "" "60000")" GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS=120000)
+out=$(run_hook "$(payload "" "90000")" GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS=120000)
 assert_eq "custom higher cap: foreground timeout under it is allowed (no output)" "" "$out"
 
-# 10. Malformed cap env var (non-numeric) -- falls back to the documented default (30000).
-out=$(run_hook "$(payload "" "60000")" GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS=not-a-number)
+# 10. Malformed cap env var (non-numeric) -- falls back to the documented default (60000).
+out=$(run_hook "$(payload "" "90000")" GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS=not-a-number)
 assert_eq "malformed cap env var: falls back to default, still blocks" "true" "$(is_block "$out")"
-assert_eq "malformed cap env var: reason uses default cap value" "true" "$(printf '%s' "$out" | jq -R 'test("30000 ms cap")' 2>/dev/null)"
+assert_eq "malformed cap env var: reason uses default cap value" "true" "$(printf '%s' "$out" | jq -R 'test("60000 ms cap")' 2>/dev/null)"
 
 # 11. Leading-zero cap env var (e.g. an operator typo "01000") -- same convention as
 # read-guard.sh's GUARDRAILS_MAX_READ_BYTES: rejected outright (not parsed as decimal or
-# octal), falls back to the documented default (30000) rather than misbehaving on it.
-out=$(run_hook "$(payload "" "60000")" GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS=01000)
+# octal), falls back to the documented default (60000) rather than misbehaving on it.
+out=$(run_hook "$(payload "" "90000")" GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS=01000)
 assert_eq "leading-zero cap env var: falls back to default, still blocks" "true" "$(is_block "$out")"
-assert_eq "leading-zero cap env var: reason uses default cap value" "true" "$(printf '%s' "$out" | jq -R 'test("30000 ms cap")' 2>/dev/null)"
+assert_eq "leading-zero cap env var: reason uses default cap value" "true" "$(printf '%s' "$out" | jq -R 'test("60000 ms cap")' 2>/dev/null)"
 
 # 12. A malformed timeout value (string type, doesn't parse as a plain decimal) -- not this
 # hook's schema to enforce, fail open rather than guess.
@@ -141,12 +141,12 @@ assert_eq "pi block reason steers to the Agent tool" "true" "$(printf '%s' "$out
 assert_eq "pi block reason steers to schedule_prompt" "true" "$(printf '%s' "$out" | jq -R 'test("schedule_prompt")' 2>/dev/null)"
 assert_eq "pi block reason never mentions run_in_background" "false" "$(printf '%s' "$out" | jq -R 'test("run_in_background")' 2>/dev/null)"
 
-# 20. pi, timeout under the default 30-second cap -> allowed.
+# 20. pi, timeout under the default 60-second cap -> allowed.
 out=$(run_hook "$(pi_payload "10")")
 assert_eq "pi, timeout under default cap: allowed (no output)" "" "$out"
 
 # 21. pi, timeout exactly at the default cap -> allowed (cap is inclusive).
-out=$(run_hook "$(pi_payload "30")")
+out=$(run_hook "$(pi_payload "60")")
 assert_eq "pi, timeout at default cap: allowed (no output)" "" "$out"
 
 # 22. pi, timeout over the default cap -> blocked, reason states seconds (not ms) and the
@@ -154,14 +154,14 @@ assert_eq "pi, timeout at default cap: allowed (no output)" "" "$out"
 out=$(run_hook "$(pi_payload "120")")
 assert_eq "pi, timeout over default cap: blocked" "true" "$(is_block "$out")"
 assert_eq "pi block reason states declared timeout in seconds" "true" "$(printf '%s' "$out" | jq -R 'test("timeout:120 seconds")' 2>/dev/null)"
-assert_eq "pi block reason states the 30 second cap" "true" "$(printf '%s' "$out" | jq -R 'test("30 second cap")' 2>/dev/null)"
+assert_eq "pi block reason states the 60 second cap" "true" "$(printf '%s' "$out" | jq -R 'test("60 second cap")' 2>/dev/null)"
 
 # 23. pi, custom cap via its own (seconds) env var -- distinct from the Claude-side
 # GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS, confirming the two caps don't cross-apply.
 out=$(run_hook "$(pi_payload "120")" GUARDRAILS_MAX_FOREGROUND_TIMEOUT_SECONDS=600)
 assert_eq "pi custom higher cap (seconds): allowed (no output)" "" "$out"
 out=$(run_hook "$(pi_payload "120")" GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS=99999999)
-assert_eq "pi ignores the ms-named cap entirely: still blocked at the 30s default" "true" "$(is_block "$out")"
+assert_eq "pi ignores the ms-named cap entirely: still blocked at the 60s default" "true" "$(is_block "$out")"
 
 # 24. pi, malformed timeout (same fail-open contract as the Claude branch, shared via the lib).
 out=$(run_hook '{"tool_input":{"command":"echo hi","timeout":false},"harness":"pi"}')

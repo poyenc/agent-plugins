@@ -29,7 +29,7 @@ if [ "$harness" != "pi" ]; then
   run_in_background=$(printf '%s' "$payload" | jq -r '.tool_input.run_in_background // false')
   [ "$run_in_background" = "true" ] && exit 0
 
-  cap_ms=$(safe_cap "${GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS:-30000}" 30000)
+  cap_ms=$(safe_cap "${GUARDRAILS_MAX_FOREGROUND_TIMEOUT_MS:-60000}" 60000)
 
   if [ "$(timeout_declared "$payload")" != "true" ]; then
     printf '{"decision":"block","reason":"This foreground command has no declared timeout, so it can block the turn for the harness default (minutes). Either set run_in_background:true (you are notified when it finishes -- use CronCreate or ScheduleWakeup if you need to check progress, never sleep or poll) or, only if this command is genuinely quick, set an explicit timeout <= %s ms."}\n' "$cap_ms"
@@ -46,7 +46,7 @@ if [ "$harness" != "pi" ]; then
 fi
 
 # pi branch: no run_in_background concept -- every call is foreground by construction.
-cap_s=$(safe_cap "${GUARDRAILS_MAX_FOREGROUND_TIMEOUT_SECONDS:-30}" 30)
+cap_s=$(safe_cap "${GUARDRAILS_MAX_FOREGROUND_TIMEOUT_SECONDS:-60}" 60)
 
 if [ "$(timeout_declared "$payload")" != "true" ]; then
   printf '{"decision":"block","reason":"This command has no declared timeout, so it can block the turn indefinitely -- pi'"'"'s Bash tool has no default timeout and no background mode of its own. Either delegate this command to the Agent tool (runs in the background, result arrives as a follow-up notification) or, only if it is genuinely quick, set an explicit timeout <= %s seconds. For a long-running command you still need to check on periodically, use schedule_prompt instead of waiting or polling."}\n' "$cap_s"
