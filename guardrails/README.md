@@ -32,6 +32,7 @@ Root classification (resolving whether an operand is a whole-tree path) is speci
 | **[no-memory-access](hooks/scripts/no-memory-access.sh)** | `PreToolUse` → `Read`/`Write`/`Edit` | Blocks all access — read and write — to Claude Code's built-in memory directory. Project memory goes stale as a project's state and decisions change, and since it's injected into context rather than deliberately read, a stale entry skews the agent's judgment without any visible signal that it happened. |
 | **[read-guard](hooks/scripts/read-guard.sh)** | `PreToolUse` → `Read` | Blocks a single `Read` from returning more than a configurable byte budget. |
 | **[no-named-agent](hooks/scripts/no-named-agent.sh)** | `PreToolUse` → `Agent` | Blocks naming a spawned agent (named, SendMessage-addressable agents change coordination semantics). |
+| **[no-ask-preview](hooks/scripts/no-ask-preview.sh)** | `PreToolUse` → `AskUserQuestion` | Blocks the preview variant (any option with a non-empty `preview` field): the user must decide on the spot and cannot look at the preview again. Steers the agent to ask in plain text instead; plain `AskUserQuestion` stays allowed. |
 | **[cron-guard](hooks/scripts/cron-guard.sh)** | `PreToolUse` → `CronCreate` | Blocks creating a cron when the agent exceeds the max concurrent count or uses a too-short interval. |
 
 ## Cron accounting
@@ -72,8 +73,8 @@ bash pi-extensions/install.sh
 This symlinks the extensions into pi's auto-loaded global extensions directory
 (`~/.pi/agent/extensions/` by default, or `$PI_CODING_AGENT_DIR/extensions` if set) and takes
 effect on the next pi session. Apart from the Bash-tool guardrails and the schedule guard
-below, the `Read`/`Write`/`Edit`/`Agent` guards are Claude-Code-specific and have no pi
-equivalent yet.
+below, the `Read`/`Write`/`Edit`/`Agent`/`AskUserQuestion` guards are Claude-Code-specific and
+have no pi equivalent yet.
 
 ### Scheduled prompts
 
@@ -99,8 +100,9 @@ are read to find the tightest gap between runs.
 
 Hooks with tests have a `hooks/tests/test-*.sh` that feeds synthetic `tool_input` JSON and
 asserts the block/allow decision (currently: the read guard, the Herdr prompt guard, the Herdr
-wait guard, the two blind-scan hooks, the srun guard, the memory-access guard, and the
-docker-on-login-node guard). Run one, or all available:
+wait guard, the two blind-scan hooks, the srun guard, the memory-access guard, the
+docker-on-login-node guard, the cron guard, the tail-follow guard, the long-foreground guard, the
+background-timeout-cap guard, and the AskUserQuestion preview guard). Run one, or all available:
 
 ```sh
 for t in hooks/tests/test-*.sh; do bash "$t"; done
