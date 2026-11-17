@@ -2,6 +2,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/../../../scripts"
+FIX="$HERE/fixtures"   # real pane captures; set before sourcing herdr-message below overwrites HERE
 PASS=0; FAIL=0
 assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; echo "    exp:[$2] act:[$3]"; FAIL=$((FAIL+1)); fi; }
 
@@ -120,16 +121,48 @@ assert_eq "pi: only the schedule_prompt widget's own rule-pair visible (editor s
 # Finding: the widget fingerprint must be an EXACT match on the header line, not a prefix match --
 # a genuine draft that happens to start with those same words must never be mistaken for the
 # widget (which would wrongly step back to an older, unrelated box and miss the real draft).
+# The older box above is EMPTY, so a prefix match would step back to it and report no draft.
 assert_eq "pi: a real draft starting with the words \"Scheduled Prompts\" is still a draft, not mistaken for the widget" "0" \
-  "$(draft "$(printf '%s\nold stuff\n%s\n%s\nScheduled Prompts are broken; investigating\n%s\nfooter' "$R" "$R" "$R" "$R")")"
+  "$(draft "$(printf '%s\n\n%s\n%s\nScheduled Prompts are broken; investigating\n%s\nfooter' "$R" "$R" "$R" "$R")")"
 
-# The widget's job-count suffix (" (N jobs)") is always rendered dim in production, and
-# _screen_filter drops dim text entirely -- so the real, ANSI-rendered header line reaching the
-# fingerprint check is "Scheduled Prompts" alone, not the full plain-text form. Confirm that exact,
-# post-filter form is still recognized and the real draft behind it is still found.
+# The widget's " (N jobs)" suffix is drawn with pi's "dim" token, so which header text reaches the
+# fingerprint check depends on the theme: pi's dark and light themes draw dim as a plain foreground
+# colour (the full "Scheduled Prompts (N jobs)" survives _screen_filter), while the system theme
+# when the terminal does not report its background colour draws it as SGR 2, which _screen_filter
+# drops (leaving "Scheduled Prompts" alone). Both forms must be recognized. This case is the SGR 2
+# form (not padded; padded real-pane cases follow).
 ANSI_WIDGET_HEADER=$(printf '\033[1mScheduled Prompts\033[22m\033[2m (3 jobs)\033[0m')
-assert_eq "pi: ANSI-rendered schedule_prompt widget header (dim job-count suffix stripped) is still recognized" "0" \
+# Empty editor + twin with typed text: without the bare-header branch the widget's own rows would be
+# read as a draft and the empty-editor case would return 0.
+assert_eq "pi: ANSI-rendered schedule_prompt widget header (dim job-count suffix stripped), empty editor, is no draft" "1" \
+  "$(draft "$(printf '%s\n\n%s\n%s\n %s\n ✓ check-logs\n%s\n~/repo (main)' "$R" "$R" "$R" "$ANSI_WIDGET_HEADER" "$R")")"
+assert_eq "pi: ANSI-rendered schedule_prompt widget header (dim job-count suffix stripped), typed text, is a draft" "0" \
   "$(draft "$(printf '%s\nhalf typed draft\n%s\n%s\n %s\n ✓ check-logs\n%s\n~/repo (main)' "$R" "$R" "$R" "$ANSI_WIDGET_HEADER" "$R")")"
+
+# pi-tui pads the lines its Text component draws (the widget header and job rows) and the editor line
+# (Editor) with trailing spaces to the pane width. The fixtures below are raw `herdr pane read --format ansi`
+# captures of live pi panes running pi-schedule-prompt (dark theme: the " (N jobs)" suffix is a plain
+# foreground colour). The editor is empty; each case also runs a TWIN whose only difference is typed
+# text in the editor line, so the pair proves the result comes from the editor box and not from the
+# widget's own rows (which would make both return 0).
+ESC=$'\033'
+scan_status(){ scan_screen_for_draft; echo $?; }                      # stdin -> prints the exit status
+typed(){ sed '2s/.*/half typed draft/' "${1:--}"; }                   # line 2 of a fixture is the editor line
+sgr2(){ sed "s/${ESC}\[38;2;126;136;142m (2 jobs)/${ESC}[2m (2 jobs)/" "${1:--}"; }   # dim colour -> SGR 2 (system theme)
+# sgr2 matches the fixture's dim colour code and job count; if the fixtures are re-captured and it stops
+# matching, the SGR 2 cases below would silently re-test the plain form.
+assert_eq "pi real capture: the SGR 2 derivation really applies to the fixture" "1" "$(sgr2 "$FIX/pi-widget-empty-editor.ansi" | grep -c "${ESC}\[2m (2 jobs)")"
+assert_eq "pi real capture: padded widget below an empty editor is no draft" "1" "$(scan_status < "$FIX/pi-widget-empty-editor.ansi")"
+assert_eq "pi real capture, twin: padded widget below typed text is a draft" "0" "$(typed "$FIX/pi-widget-empty-editor.ansi" | scan_status)"
+assert_eq "pi real capture, SGR 2 header form (suffix dropped), padded, empty editor is no draft" "1" "$(sgr2 "$FIX/pi-widget-empty-editor.ansi" | scan_status)"
+assert_eq "pi real capture, SGR 2 header form, padded, twin with typed text is a draft" "0" "$(typed "$FIX/pi-widget-empty-editor.ansi" | sgr2 | scan_status)"
+assert_eq "pi real capture: subagent fleet bar below the widget, empty editor, is no draft" "1" "$(scan_status < "$FIX/pi-widget-fleet-bar.ansi")"
+assert_eq "pi real capture, twin: subagent fleet bar below the widget, typed text, is a draft" "0" "$(typed "$FIX/pi-widget-fleet-bar.ansi" | scan_status)"
+# pi re-adds a widget at the END of its list on every setWidget call, and pi-schedule-prompt re-mounts
+# its widget every 30s, so a rule-less subagent fleet bar can also sit BETWEEN the editor and the widget.
+FLEET_BETWEEN=$(printf '%s\n\n%s\n  esc to interrupt\n  ● main\n%s\n Scheduled Prompts (2 jobs)\n\n  ✗ probe-job  never\n%s\n~/repo (main)' "$R" "$R" "$R" "$R")
+assert_eq "pi: fleet bar between the editor and the widget, empty editor, is no draft" "1" "$(draft "$FLEET_BETWEEN")"
+assert_eq "pi, twin: fleet bar between the editor and the widget, typed text, is a draft" "0" "$(printf '%s\n' "$FLEET_BETWEEN" | typed | scan_status)"
 
 # ANSI screens as herdr emits them with --format ansi (sequences captured from real claude and pi panes).
 # claude draws a placeholder hint DIM with the shaded (reverse-video) cursor on its first letter; neither

@@ -184,20 +184,23 @@ _screen_filter() {
 # e.g. a menu or a different layout) returns 1, i.e. "can't tell", which never blocks a send.
 #
 # pi's schedule_prompt extension (the pi-schedule-prompt package's CronWidget) draws its own rule
-# bordered box directly below the editor, between it and the footer, whenever any job is loaded for
-# the session -- even an already-ended one, since disabled jobs are only swept on the next session
+# bordered box below the editor, between it and the footer, whenever any job is loaded for the
+# session -- even an already-ended one, since disabled jobs are only swept on the next session
 # start. That box's own top/bottom rules would otherwise be mistaken for "the last two rules" here,
-# and its fixed header ("Scheduled Prompts (N jobs)") plus job rows would then be misread as a
-# permanent, unclearable draft. Recognized by an EXACT match on that header's line, in either form
-# it can reach here as: "Scheduled Prompts" alone (the real, ANSI-rendered case -- the " (N jobs)"
-# suffix is always dim (SGR 2) in the source and _screen_filter drops dim text) or the full literal
-# "Scheduled Prompts (<N> jobs)" (the plain-text case, with no escapes to strip). An exact match,
-# not a prefix match, so a genuine draft that merely starts with those words (e.g. "Scheduled
-# Prompts are broken; investigating") is never misclassified. Tied to this package's current
-# wording (pi-schedule-prompt's cron-widget.ts); if it's ever renamed, this stops applying and the
-# false positive would resurface. When recognized, the search steps back to the immediately
-# preceding rule-pair (the editor's own), requiring 4 rule lines total; fewer than that falls
-# through to "can't tell" like any other box that can't be found.
+# and its header plus job rows would then be misread as a permanent, unclearable draft.
+#
+# The widget is recognized by its header line. The header text is an EXACT match -- never a prefix,
+# so a draft like "Scheduled Prompts are broken" is still a draft -- and it reaches here in one of
+# two forms, depending on how the theme draws the dim " (N jobs)" suffix: the full "Scheduled
+# Prompts (<N> jobs)" when dim is a plain foreground colour (pi's dark and light themes), or
+# "Scheduled Prompts" alone when dim is SGR 2 (the system theme when the terminal does not report
+# its background colour; _screen_filter drops SGR 2 text). pi-tui's Text component pads each line
+# it draws, including this header, with trailing spaces to the pane width, so the line is trimmed
+# on both ends before the match.
+# Tied to this package's current wording (pi-schedule-prompt's cron-widget.ts); if it changes,
+# this stops applying and the false positive would resurface. When recognized, the search steps
+# back to the immediately preceding rule-pair (the editor's own), requiring 4 rule lines total;
+# fewer than that falls through to "can't tell" like any other box that can't be found.
 scan_screen_for_draft() {
   local line i n first
   local -a lines=() rule_idx=()
@@ -212,6 +215,7 @@ scan_screen_for_draft() {
 
   first="${lines[$((r1+1))]#?}"
   first="${first#"${first%%[![:space:]]*}"}"
+  first="${first%"${first##*[![:space:]]}"}"
   if [[ "$first" == "Scheduled Prompts" || "$first" =~ ^Scheduled\ Prompts\ \([0-9]+\ jobs\)$ ]]; then
     [ "$m" -ge 4 ] || return 1
     r1=${rule_idx[$((m-4))]}; r2=${rule_idx[$((m-3))]}
