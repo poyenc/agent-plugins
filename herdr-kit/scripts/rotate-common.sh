@@ -501,14 +501,14 @@ verify() {
   done
   case "$st" in idle|done) ;; *) note "verify: agent not ready ($st)"; return 1 ;; esac
 
-  # pi's argv is not a reliable source to verify against across platforms: on macOS (and older
-  # builds) pi rewrites its process title on startup (process.title = APP_NAME), overwriting the
-  # /proc/pid/cmdline memory `herdr pane process-info` reads from, so capture_argv sees only the
-  # bare binary name. (Linux fork builds now preserve argv via /proc/self/comm -- see
-  # capture_argv -- but a bare `pi` launch still carries no model/effort, and this branch must
-  # stay correct on the clobbered platforms too.) So pi verifies the live model/effort via the
-  # same screen-reading detector used to capture them, rather than comparing argv. Flags beyond
-  # model/effort are not verified here.
+  # pi verifies the live model/effort via the same screen-reading detector used to capture them,
+  # rather than comparing argv. Two reasons, both about argv lacking the values: a bare `pi`
+  # launch carries no --model/--effort at all, and on macOS (and older builds) pi also rewrites its
+  # process title on startup (process.title = APP_NAME), overwriting the /proc/pid/cmdline memory
+  # `herdr pane process-info` reads from, so capture_argv sees only the bare binary name. Fork
+  # builds on Linux no longer clobber argv (they preserve it via /proc/self/comm -- see
+  # capture_argv), so only the bare-launch reason applies there; this branch must stay correct on
+  # the clobbered platforms too. Flags beyond model/effort are not verified here.
   if [ "$kind" = pi ] && declare -F detect_override >/dev/null 2>&1; then
     local want_model want_effort
     want_model=$(value_of_flag "$MODEL_FLAG" "${intended[@]}")
