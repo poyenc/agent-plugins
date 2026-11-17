@@ -258,7 +258,16 @@ detect_override() {
     # a case-sensitive match found the latter but silently missed the former. The value is kept
     # exactly as the picker shows it: it becomes the relaunch's --model value, and lowercasing
     # it rewrote the configured "Claude-..." name into a different spelling on every rotation.
-    name=$(printf '%s' "$row" | grep -oiE 'Claude-[A-Za-z0-9._-]+(\[[A-Za-z0-9._-]+\])?' | head -n1) || true
+    #
+    # A candidate counts only when whitespace or ")" follows it on its own physical line: the
+    # primary label is followed by the " ✔" mark and the description form closes with ")". At a
+    # narrow width the picker TRUNCATES the identifier column with an ellipsis ("Claude-Sonnet-5.…",
+    # "Claude-Haiku-5.5[1…") or hard-wraps a long word mid-token, leaving only a PREFIX of the real
+    # identifier on screen -- a prefix would be mistaken for a different model, and (once pinned as
+    # the relaunch's --model) silently lose the version digits and the [1m] suffix. Such a row has
+    # no complete identifier anywhere, so name stays empty (no model detected: the relaunch replays
+    # the launch argv) instead of reporting a corrupted one.
+    name=$(printf '%s' "$row" | grep -oiE 'Claude-[A-Za-z0-9._-]+(\[[A-Za-z0-9._-]+\])?[[:space:])]' | head -n1 | sed -E 's/[[:space:])]$//') || true
     # The Default row has no such identifier column of its own -- its description instead reads
     # "Use the default model (currently Opus 5 (1M context))", so fall back to the family name
     # named there (still generic, since that's all the UI itself ever shows for this row). This

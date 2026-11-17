@@ -16,6 +16,7 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/../../../scripts"
+FIX="$HERE/fixtures"   # real pane captures
 PASS=0; FAIL=0
 assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); else echo "  FAIL: $1"; echo "    exp:[$2] act:[$3]"; FAIL=$((FAIL+1)); fi; }
 
@@ -485,5 +486,40 @@ ROTATE_DETECT_POLL_SECS=1
 DETECTED_MODEL=x DETECTED_EFFORT=x
 detect_override wV:p1T
 assert_eq "two-line description wrap + lowercase identifier is still recovered" "claude-opus-4.8[1m]" "$DETECTED_MODEL"
+
+# Narrow pane (41 columns): the picker TRUNCATES the identifier column with an ellipsis instead of
+# wrapping it ("Claude-Sonnet-5.…", "Claude-Haiku-5.5[1…"), and the row's description ("Custom
+# Sonnet model (1M context)") carries no identifier at all. The real identifier is simply not on
+# screen, so detect_override must report NO model (the relaunch then replays the launch argv) rather
+# than a prefix of it. Live-reproduced: a prefix "Claude-Sonnet-5." was read as a mid-session model
+# change and the relaunch ran with it, losing the "5" and the [1m] suffix, while verify passed
+# against that same corrupted value. The fixture is the exact `herdr pane read --source visible
+# --lines 20` of a real claude pane at 41 columns, launched with --model 'Claude-Sonnet-5.5[1m]'.
+STAGE=""
+herdr(){
+  case "$1 $2" in
+    "agent send-keys") STAGE=""; echo '{"result":{}}' ;;
+    "agent get")       echo '{"result":{"agent":{"agent_status":"idle"}}}' ;;
+    "agent prompt")    case "$4" in /model) STAGE=model ;; esac; echo '{"result":{}}' ;;
+    "pane read")
+      case "$STAGE" in model) cat "$NARROW_SCREEN_FILE" ;; *) printf 'user@host:~$ \n' ;; esac ;;
+    *) echo '{"result":{}}' ;;
+  esac
+}
+ROTATE_DETECT_POLL_SECS=1
+NARROW_SCREEN_FILE="$FIX/claude-model-picker-41cols.txt"
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wN:p1
+assert_eq "41 cols: identifier truncated with an ellipsis is NOT reported as a model" "" "$DETECTED_MODEL"
+assert_eq "41 cols: effort is still recovered from the same screen" "high" "$DETECTED_EFFORT"
+
+# Same capture with the marked row moved to Haiku, whose identifier is cut INSIDE the bracket
+# ("Claude-Haiku-5.5[1…"): the bracketed suffix must not be silently dropped either.
+NARROW_SCREEN_FILE=$(mktemp)
+sed -E 's/^  ❯ 4\./    4./; s/(Claude-Sonnet-5\.…) ✔/\1  /; s/^    5\. (Claude-Haiku-5\.5\[1…)  /  ❯ 5. \1 ✔/' "$FIX/claude-model-picker-41cols.txt" > "$NARROW_SCREEN_FILE"
+assert_eq "41 cols derived screen: the Haiku row really is the marked one" "1" "$(grep -c '❯ 5\. Claude-Haiku-5\.5\[1…' "$NARROW_SCREEN_FILE")"
+DETECTED_MODEL=x DETECTED_EFFORT=x
+detect_override wN:p1
+assert_eq "41 cols: identifier cut inside its [1m] bracket is NOT reported as a model" "" "$DETECTED_MODEL"
 
 echo "PASS=$PASS FAIL=$FAIL"; [ "$FAIL" -eq 0 ]
