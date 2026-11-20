@@ -45,9 +45,11 @@ the plugin's shared `scripts/`). Each step below shows the full inline form — 
 This resolves and validates the target (kind, pane, name, and any `--name`/`--model`/`--effort`
 you passed). It does NOT capture argv or probe the target's live model/effort here -- that all
 happens in `finish` (nothing is persisted between the two calls). It then sends a self-contained
-handoff prompt telling the target to ping **you** back --
-`herdr agent prompt $HERDR_PANE_ID "<target-pane>@<session-prefix>: <path>"` -- once it has
-written the handoff. The tag is the target's **pane id** plus the first 8 chars of its
+handoff prompt telling the target to ping **you** back -- by running the message skill's
+`<abs path>/herdr-message send $HERDR_PANE_ID "<target-pane>@<session-prefix>: <path>"` (not a raw
+`herdr agent prompt`, which the guardrails plugin's hook blocks) -- once it has written the handoff.
+If that send is refused because your prompt box holds unsent text, the target schedules a wake-up and
+resends it. The tag is the target's **pane id** plus the first 8 chars of its
 *current* `agent_session` id, so a stale ping or a changed occupant is caught (**claude
 only**: pi's session id is a filesystem path and codex reports none, so for those kinds the
 tag is the bare pane id and this staleness check is skipped). The command returns
@@ -56,8 +58,10 @@ immediately; it does not wait.
 ## Step 2 -- wait for the ping, then finish
 
 **Stop here and wait.** Do not poll or run other tool calls for this rotation. The target's
-ping arrives as your own next incoming message (a prompt addressed to your pane) -- when it
-does, read the tag and the absolute path straight out of it. Then run, passing the **tag
+ping arrives as your own next incoming message (a prompt addressed to your pane), wrapped in the
+message skill's envelope: a `[msg-<id> from <name>@<pane>]` header line, then the body line
+`<tag>: <path>`. When it does, read the tag and the absolute path from the **body line** (the tag is
+the `<pane>[@<session-prefix>]` before the colon; the header's `from` field is the sender, not the tag). Then run, passing the **tag
 from the ping** (not just the bare name) as the target:
 
     <base>/scripts/herdr-rotate finish <name-or-pane>[@<session-prefix>] <handoff-path> [--name N] [--model M] [--effort E] [--kickoff "<message>"|off]

@@ -7,6 +7,11 @@ die()  { printf 'herdr-rotate: ERROR: %s\n' "$*" >&2; exit 1; }
 
 guard() { [ "${HERDR_ENV:-}" = 1 ]; }
 
+# This file's directory, which also holds herdr-message (it may be reached through a symlinked
+# scripts/ directory, so the value is the path as seen by the caller). Used to give the handoff prompt
+# an absolute path to herdr-message. Named so it can't clash with a caller's own HERE.
+ROTATE_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # A pane's live column width, or empty if herdr can't report it. A pane appears in its own
 # `edges` layout list; pick that entry's rect width. Best-effort only (see log_pane_diag).
 pane_width() {
@@ -315,10 +320,11 @@ wait_settled() {
   die "target on $pane did not settle within ${ROTATE_SETTLE_POLL_SECS:-150}s (status: ${st:-unknown}) — not proceeding with a destructive step against a possibly still-active session"
 }
 
-# %s slots: default handoff path, orchestrator pane id, target's own name (twice: instruction + literal tag).
+# %s slots: default handoff path, absolute path of herdr-message, pane that ran the handoff (the ping's
+# addressee), then the ping's tag twice (the instruction + the literal prefix).
 HANDOFF_PROMPT='Write a handoff so a fresh agent can continue this work with zero prior context — if you have a handoff skill available, invoke it now; that skill knows how to write one properly (including a team handoff, if you have live teammates), so do not duplicate its judgment here. If you do not have one, capture at minimum: the objective and what "done" looks like; task status and the exact next action; key files/branch/commands by reference, not pasted; dead ends already ruled out; and the operating rules and decisions made this session with their why — strip secrets. A default save path is %s (create the directory with mkdir -m 700 -p if needed) — use it, or your own path if more fitting; the file you actually write is authoritative.
 
-SEPARATE FROM THE DOCUMENT — a real action YOU must take yourself, right now, after the file is written (this is not something to describe inside the handoff, and not a step for whoever reads it next): run this exact shell command yourself via your Bash tool: `herdr agent prompt %s "%s: <absolute-path-of-the-file-you-wrote>"` — replace the placeholder with the real absolute path, keep "%s: " as a literal prefix (it identifies this rotation), and put nothing else in the message. Do not just print or mention this command — execute it. Then stop — do not continue the task after that; you are about to be replaced.'
+SEPARATE FROM THE DOCUMENT — a real action YOU must take yourself, right now, after the file is written (this is not something to describe inside the handoff, and not a step for whoever reads it next): run this exact shell command yourself via your Bash tool: `%s send %s "%s: <absolute-path-of-the-file-you-wrote>"` — replace the placeholder with the real absolute path, keep "%s: " as a literal prefix (it identifies this rotation), and put nothing else in the message (no extra flags). Do not just print or mention this command — execute it. (This is the send command of the message skill, so it is not blocked the way a raw `herdr agent prompt` is.) If the send is refused with exit status 75 (the receiving pane has unsent text in its prompt box), do not give up: schedule a wake-up in about 2 minutes to run this same command again, then stop. Then stop — do not continue the task after that; you are about to be replaced.'
 
 # Fires the handoff prompt and returns immediately — does not wait or poll. Completion is
 # reported back by the target pinging $HERDR_PANE_ID (the orchestrator), tagged with the
@@ -336,7 +342,8 @@ send_handoff() {
   [ -n "$session" ] && tag="${pane}@${session:0:8}"
   local dir="${TMPDIR:-/tmp}/handoff-$(id -un)"
   local default_path="$dir/$(date +%y%m%d-%H%M%S)-handoff-${name}.md"
-  local prompt; printf -v prompt "$HANDOFF_PROMPT" "$default_path" "$HERDR_PANE_ID" "$tag" "$tag"
+  local q_msg; printf -v q_msg '%q' "$ROTATE_SCRIPTS_DIR/herdr-message"
+  local prompt; printf -v prompt "$HANDOFF_PROMPT" "$default_path" "$q_msg" "$HERDR_PANE_ID" "$tag" "$tag"
   herdr agent prompt "$pane" "$prompt" >/dev/null 2>&1 || die "failed to send the handoff prompt to $name ($pane)"
   note "handoff requested from $name ($pane); default path $default_path"
   note "when its ping arrives, pass this as the target to finish: ${tag}"

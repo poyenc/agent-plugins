@@ -109,6 +109,33 @@ assert_eq "one prompt sent" "1" "$(wc -l < "$SENTLOG" | tr -d ' ')"
 assert_eq "prompt targets the agent's pane" "1" "$(grep -c '^wG:p4 ' "$SENTLOG")"
 assert_eq "prompt carries orchestrator pane" "1" "$(grep -c 'wG:p1' "$SENTLOG")"
 assert_eq "prompt carries pane@session-prefix tag" "1" "$(grep -c 'wG:p4@abcd1234:' "$SENTLOG")"
+# The ping command the target is told to run must be herdr-message's send (absolute path, addressed to the
+# pane that ran the handoff), NOT a raw `herdr agent prompt`, which the guardrails plugin's hook blocks --
+# the target would then be stuck holding an order it cannot carry out. The command text is parsed with
+# the shell, as the target's Bash tool would, so the oracle does not depend on how the path is escaped.
+parse_ping_cmd(){ # $1 = a SENTLOG file; sets PING_ARGS to the parsed words of the backticked command
+  local cmd; cmd=$(grep -oE '`[^`]*herdr-message send[^`]*`' "$1" | head -n1 | tr -d '`')
+  cmd=${cmd//<absolute-path-of-the-file-you-wrote>//tmp/handoff-example.md}
+  eval "set -- $cmd"; PING_ARGS=("$@")
+}
+parse_ping_cmd "$SENTLOG"
+EXPECTED_MSG="$(cd "$HERE/../../../scripts" && pwd)/herdr-message"
+assert_eq "ping command runs herdr-message by its absolute path"  "$EXPECTED_MSG" "${PING_ARGS[0]:-}"
+assert_eq "ping command uses the send subcommand"                  "send"         "${PING_ARGS[1]:-}"
+assert_eq "ping is addressed to the pane that ran the handoff"     "wG:p1"        "${PING_ARGS[2]:-}"
+assert_eq "ping text is the session tag, a colon, then the path"   "wG:p4@abcd1234: /tmp/handoff-example.md" "${PING_ARGS[3]:-}"
+assert_eq "ping command takes nothing else"                        "4"            "${#PING_ARGS[@]}"
+assert_eq "prompt does not order a raw 'herdr agent prompt' command" "0" "$(grep -cE 'herdr agent prompt wG:p1' "$SENTLOG")"
+assert_eq "the herdr-message path in the prompt exists and is executable" "1" "$([ -x "${PING_ARGS[0]:-/nonexistent}" ] && echo 1 || echo 0)"
+assert_eq "prompt says what to do when the ping send is refused (exit 75)" "1" "$(grep -c 'exit status 75.*schedule a wake-up' "$SENTLOG")"
+# An install path with a space and a quote must still round-trip through the command text.
+ODD_DIR="/tmp/odd dir with 'quote"; SAVED_DIR="$ROTATE_SCRIPTS_DIR"
+ROTATE_SCRIPTS_DIR="$ODD_DIR"; SENTLOG_ODD=$(mktemp)
+herdr(){ case "$1 $2" in "agent prompt") shift 2; printf '%s\n' "${*//$'\n'/\\n}" >> "$SENTLOG_ODD"; echo '{"result":{}}';; *) echo "{}";; esac; }
+send_handoff wG:p4 lead abcd1234efgh
+ROTATE_SCRIPTS_DIR="$SAVED_DIR"
+parse_ping_cmd "$SENTLOG_ODD"
+assert_eq "an install path with a space and a quote round-trips through the ping command" "$ODD_DIR/herdr-message" "${PING_ARGS[0]:-}"
 
 # send_handoff must die (not silently succeed) when the prompt send itself fails.
 herdr(){ return 42; }
