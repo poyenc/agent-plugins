@@ -151,6 +151,7 @@ out=$(bash "$S/herdr-message" send wK:p1 "hi" 2>&1); rc=$?
 assert_eq "send to a claude target with a draft exits 75" "75" "$rc"
 assert_eq "send to a target with a draft sends nothing" "0" "$(sent)"
 assert_eq "the refusal says someone is typing and to retry later" "1" "$(printf '%s' "$out" | grep -c 'someone is typing there')"
+assert_eq "the refusal tells the sender to schedule a wake-up and resend, and to tell the user if it fails again" "1" "$(printf '%s' "$out" | grep -c 'Schedule a wake-up in about 2 minutes.*run this same command again.*tell the user')"
 assert_eq "a draft that never clears is checked 26 times (the full internal retry budget), not just once" "26" "$(grep -c 'pane read' "$MOCK_CALLS")"
 
 # End-to-end timing regression (plugin-reviewer, PR #25 re-review): prove, at REAL wall-clock

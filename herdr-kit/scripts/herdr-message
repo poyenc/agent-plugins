@@ -288,7 +288,7 @@ abort_if_target_typing() {
     fi
     [ "$attempt" -lt "$max_attempts" ] && sleep "$poll_s"
   done
-  note "target $target ($pane) still has unsent text in its prompt box after $max_attempts checks -- someone is typing there, so nothing was sent (it would interleave with their input). Retry later: schedule a wake-up (ScheduleWakeup/CronCreate on Claude Code, schedule_prompt on pi) or tell the user. Exit status 75."
+  note "target $target ($pane) still has unsent text in its prompt box after $max_attempts checks -- someone is typing there, so nothing was sent (it would interleave with their input). Schedule a wake-up in about 2 minutes (ScheduleWakeup/CronCreate on Claude Code, schedule_prompt on pi) to run this same command again; if it is refused again, tell the user instead of dropping the message. Exit status 75."
   exit 75
 }
 

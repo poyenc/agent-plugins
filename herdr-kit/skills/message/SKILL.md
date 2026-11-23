@@ -5,9 +5,10 @@ description: >
   received. Use whenever you are about to send a prompt or message to another agent --
   especially when you expect a response -- instead of a blocking `herdr agent prompt --wait`:
   to update, ask, or check in after delegating work, to flag something relevant to another
-  agent's task, or to answer a message you were sent. Never blocks: sending returns
-  immediately, and a reply (if you asked for one) arrives as your own next incoming turn,
-  the same way any other prompt addressed to your pane does. Also covers delivering a bare
+  agent's task, or to answer a message you were sent. Never waits for a reply: sending
+  returns as soon as the prompt is delivered (if the target has unsent text in its prompt box it
+  first waits up to ~50 s for that to clear), and a reply (if you asked for one) arrives as
+  your own next incoming turn, the same way any other prompt addressed to your pane does. Also covers delivering a bare
   slash-command (e.g. `/model`) to control a peer's own CLI, unwrapped, when a real message
   envelope would corrupt it. No-op outside herdr (HERDR_ENV != 1).
 allowed-tools: Bash(*/scripts/herdr-message *), Bash(herdr *)
@@ -16,8 +17,8 @@ allowed-tools: Bash(*/scripts/herdr-message *), Bash(herdr *)
 # message
 
 Send an async message to another herdr agent, or reply to one. Unlike `herdr agent prompt
---wait --timeout`, this never blocks: `send`/`reply` both return as soon as the underlying
-prompt is delivered, whether or not anyone ever answers.
+--wait --timeout`, this never waits for a reply: `send`/`reply` both return as soon as the
+underlying prompt is delivered, whether or not anyone ever answers.
 
 ## Sending
 
@@ -86,11 +87,13 @@ just the bare slash-command. There is no persisted message store, inbox, or deli
 beyond whatever `herdr agent prompt` itself reports; a failed send dies loudly rather than
 reporting success.
 
-**Typing guard.** `send`, `reply` and `command` first read the target's visible screen and refuse --
-nothing is sent, exit status 75, a message saying someone is typing -- when the target's prompt box
-holds unsent text, because a delivered message would interleave with what the person is typing. Retry
-later: schedule a wake-up (`ScheduleWakeup`/`CronCreate` on Claude Code, `schedule_prompt` on pi)
-or tell the user; do not loop on the send. Only claude and pi targets are checked. Anything it
+**Typing guard.** `send`, `reply` and `command` first read the target's visible screen. When the
+target's prompt box holds unsent text, the command waits for it to clear (26 checks, 2 s apart, about
+50 s, so give the call a declared timeout under 60 s) and then refuses -- nothing is sent, exit status
+75, a message saying someone is typing -- because a delivered message would interleave with what the
+person is typing. On that refusal, schedule a wake-up in about 2 minutes (`ScheduleWakeup`/`CronCreate`
+on Claude Code, `schedule_prompt` on pi) to run the same command again, and if it is refused again,
+tell the user instead of dropping the message; do not loop on the send yourself. Only claude and pi targets are checked. Anything it
 cannot determine -- the lookup or screen read fails, another agent kind, your own pane, no
 recognizable prompt box -- lets the send proceed. Codex targets are not checked. The screen is read
 with color codes, and dim placeholder text (with the cursor on its first letter) and a blank cursor
