@@ -1,5 +1,6 @@
 /**
  * Footer that adds the cache hit rate: CH<latest request>%/<whole session>%.
+ * Second row order: model, context, cache hit, token totals, cost.
  * Replaces the built-in footer via ctx.ui.setFooter(); re-applied on every
  * session_start (startup, /reload, new, resume, fork).
  */
@@ -96,56 +97,37 @@ export default function (pi: ExtensionAPI) {
 					const branch = footerData.getGitBranch();
 					if (branch) pwd = `${pwd} (${branch})`;
 
-					const parts: string[] = [];
-					if (t.input) parts.push(`↑${fmt(t.input)}`);
-					if (t.output) parts.push(`↓${fmt(t.output)}`);
-					if (t.cacheRead) parts.push(`R${fmt(t.cacheRead)}`);
-					if (t.cacheWrite) parts.push(`W${fmt(t.cacheWrite)}`);
+					// Order: model, context, cache hit, then token totals and cost.
+					const modelId = ctx.model?.id || "no-model";
+					let model = modelId;
+					if (ctx.model?.reasoning) {
+						const level = ctx.thinkingLevel || "off";
+						model = level === "off" ? `${modelId} • thinking off` : `${modelId} • ${level}`;
+					}
+
+					const ctxText = `${pct === "?" ? "?" : `${pct}%`}/${fmt(window)}${auto ? " (auto)" : ""}`;
+					const rest: string[] = [pctValue > 90 ? theme.fg("error", ctxText) : pctValue > 70 ? theme.fg("warning", ctxText) : ctxText];
 					if ((t.cacheRead > 0 || t.cacheWrite > 0) && t.latestHit !== undefined) {
 						const sessionPrompt = t.input + t.cacheRead + t.cacheWrite;
 						const sessionHit = sessionPrompt > 0 ? (t.cacheRead / sessionPrompt) * 100 : 0;
-						parts.push(`CH${t.latestHit.toFixed(1)}%/${Math.round(sessionHit)}%`);
+						rest.push(`CH${t.latestHit.toFixed(1)}%/${Math.round(sessionHit)}%`);
 					}
-					if (t.cost) parts.push(`$${t.cost.toFixed(3)}`);
+					if (t.input) rest.push(`↑${fmt(t.input)}`);
+					if (t.output) rest.push(`↓${fmt(t.output)}`);
+					if (t.cacheRead) rest.push(`R${fmt(t.cacheRead)}`);
+					if (t.cacheWrite) rest.push(`W${fmt(t.cacheWrite)}`);
+					if (t.cost) rest.push(`$${t.cost.toFixed(3)}`);
 
-					const ctxText = `${pct === "?" ? "?" : `${pct}%`}/${fmt(window)}${auto ? " (auto)" : ""}`;
-					parts.push(pctValue > 90 ? theme.fg("error", ctxText) : pctValue > 70 ? theme.fg("warning", ctxText) : ctxText);
-
-					let left = parts.join(" ");
-					let leftWidth = visibleWidth(left);
-					if (leftWidth > width) {
-						left = truncateToWidth(left, width, "...");
-						leftWidth = visibleWidth(left);
-					}
-
-					const modelId = ctx.model?.id || "no-model";
-					let right = modelId;
-					if (ctx.model?.reasoning) {
-						const level = ctx.thinkingLevel || "off";
-						right = level === "off" ? `${modelId} • thinking off` : `${modelId} • ${level}`;
-					}
+					let line = [model, ...rest].join(" ");
 					if (footerData.getAvailableProviderCount() > 1 && ctx.model) {
-						const withProvider = `(${ctx.model.provider}) ${right}`;
-						if (leftWidth + 2 + visibleWidth(withProvider) <= width) right = withProvider;
+						const withProvider = [`(${ctx.model.provider}) ${model}`, ...rest].join(" ");
+						if (visibleWidth(withProvider) <= width) line = withProvider;
 					}
-
-					let line: string;
-					const rightWidth = visibleWidth(right);
-					if (leftWidth + 2 + rightWidth <= width) {
-						line = left + " ".repeat(width - leftWidth - rightWidth) + right;
-					} else {
-						const room = width - leftWidth - 2;
-						if (room > 0) {
-							const cut = truncateToWidth(right, room, "");
-							line = left + " ".repeat(Math.max(0, width - leftWidth - visibleWidth(cut))) + cut;
-						} else {
-							line = left;
-						}
-					}
+					line = truncateToWidth(line, width, "...");
 
 					const lines = [
 						truncateToWidth(theme.fg("dim", pwd), width, theme.fg("dim", "...")),
-						theme.fg("dim", left) + theme.fg("dim", line.slice(left.length)),
+						theme.fg("dim", line),
 					];
 
 					const statuses = footerData.getExtensionStatuses();
