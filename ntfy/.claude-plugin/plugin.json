@@ -1,9 +1,9 @@
 {
   "name": "ntfy",
-  "description": "Sends ntfy.sh push notifications when the agent asks the user a question. Off by default; toggle per-session with /ntfy-on and /ntfy-off.",
+  "description": "Sends ntfy.sh push notifications when the agent asks the user a question or needs a permission decision. Off by default; toggle per-session with /ntfy-on and /ntfy-off.",
   "version": "0.1.0",
   "author": {
     "name": "PoYen Chen"
   },
-  "keywords": ["ntfy", "notification", "afk", "question", "status", "alert"]
+  "keywords": ["ntfy", "notification", "afk", "question", "permission", "status", "alert"]
 }

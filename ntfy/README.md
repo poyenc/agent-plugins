@@ -1,12 +1,12 @@
 # ntfy
 
-Push notifications via [ntfy.sh](https://ntfy.sh) when the agent asks you a question or you want to be pinged on any event. Off by default; toggle per-session.
+Push notifications via [ntfy.sh](https://ntfy.sh) when the agent asks you a question or needs a permission decision, or you want to be pinged on any event. Off by default; toggle per-session.
 
 ## Quick Start
 
 1. Install the [ntfy app](https://ntfy.sh/#subscribe) on your phone or desktop and subscribe to a topic of your choosing.
 2. Set `NTFY_TOPIC` to that topic (see Configuration below).
-3. Before going AFK, say `ntfy on` — you'll be pinged whenever the agent asks you a question.
+3. Before going AFK, say `ntfy on` — you'll be pinged whenever the agent asks you a question or shows a permission dialog.
 
 ## Usage
 
@@ -24,12 +24,15 @@ asked to notify on a specific event (task complete, error, milestone, question, 
 
 ## How It Works
 
-Two hooks fire when notifications are enabled:
+Three hooks fire when notifications are enabled:
 
 | Hook | Trigger | Behavior |
 |------|---------|----------|
 | `PreToolUse` on `AskUserQuestion` | Agent uses the question tool | Sends notification with the exact question text (precise) |
+| `PermissionRequest` | A permission dialog is about to show | Sends notification with the tool name and its command or file path (first 300 chars) |
 | `Stop` | Agent stops and its message contains `?` | Sends notification with the last 300 chars of the message (best-effort fallback for plain-text questions) |
+
+The permission push carries the tool name and its command or file path, sent to the configured ntfy server (public `ntfy.sh` by default). Commands can contain secrets, so use a private topic and `NTFY_TOKEN` (see Configuration).
 
 A `SessionEnd` hook cleans up the per-session marker file on exit.
 

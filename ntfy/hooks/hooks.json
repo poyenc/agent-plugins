@@ -12,6 +12,17 @@
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/ntfy-on-permission.sh\""
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",

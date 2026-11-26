@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Shared ntfy sender. Usage: ntfy-send.sh [message]
 # Reads NTFY_TOPIC, NTFY_URL, NTFY_PRIORITY, NTFY_TOKEN, NTFY_TITLE from env.
+# Set NTFY_RAW=1 to send the body verbatim (skip markdown stripping) -- for literal text such as shell commands.
 set -euo pipefail
 
 body="${1:-Agent needs input}"
 
 # Strip markdown formatting
+if [ -z "${NTFY_RAW:-}" ]; then
 body=$(printf '%s' "$body" | python3 -c "
 import sys, re
 text = sys.stdin.read()
@@ -23,6 +25,7 @@ text = re.sub(r'^>\s+', '', text, flags=re.MULTILINE)
 text = re.sub(r'^-{3,}$', '', text, flags=re.MULTILINE)
 print(text.strip())
 " 2>/dev/null || printf '%s' "$body")
+fi
 
 # Cap at 4096 bytes (ntfy hard limit)
 if [ "${#body}" -gt 4096 ]; then
