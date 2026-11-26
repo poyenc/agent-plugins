@@ -2,6 +2,7 @@
 # Send an ntfy notification if notifications are enabled for this session.
 # Usage: ntfy-user.sh <message>
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/marker.sh"
 
 message="${1:-}"
 if [ -z "$message" ]; then
@@ -9,11 +10,6 @@ if [ -z "$message" ]; then
     exit 1
 fi
 
-session_id="${CLAUDE_CODE_SESSION_ID:-}"
-marker="${CLAUDE_CODE_TMPDIR:-/tmp}/ntfy-plugin/active/notify-enabled-${session_id}"
-[ -f "$marker" ] || exit 0
+ntfy_require_enabled "${CLAUDE_CODE_SESSION_ID:-}"
 
-stored_title=$(cat "$marker")
-[ -n "$stored_title" ] && export NTFY_TITLE="$stored_title"
-
-bash "$(dirname "$0")/../../scripts/ntfy-send.sh" "$message"
+bash "$(dirname "${BASH_SOURCE[0]}")/../../scripts/ntfy-send.sh" "$message"

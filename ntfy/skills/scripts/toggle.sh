@@ -2,6 +2,7 @@
 # Manage the per-session notification marker file.
 # Usage: toggle.sh on|off <session_id> [title]
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/marker.sh"
 
 action="${1:-}"
 session_id="${2:-}"
@@ -13,17 +14,13 @@ if [ -z "$action" ] || [ -z "$session_id" ]; then
     exit 1
 fi
 
-marker_dir="${CLAUDE_CODE_TMPDIR:-/tmp}/ntfy-plugin/active"
-marker="${marker_dir}/notify-enabled-${session_id}"
-
 case "$action" in
     on)
-        mkdir -p "$marker_dir"
-        printf '%s' "$title" > "$marker"
+        ntfy_marker_enable "$session_id" "$title"
         echo "ntfy notifications enabled for session ${session_id}"
         ;;
     off)
-        rm -f "$marker"
+        ntfy_marker_disable "$session_id"
         echo "ntfy notifications disabled for session ${session_id}"
         ;;
     *)

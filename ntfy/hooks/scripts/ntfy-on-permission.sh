@@ -3,16 +3,8 @@
 # Prints nothing, so the dialog still shows normally.
 set -euo pipefail
 
-payload=$(cat)
-
-session_id=$(printf '%s' "$payload" | python3 -c \
-    "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || true)
-
-marker="${CLAUDE_CODE_TMPDIR:-/tmp}/ntfy-plugin/active/notify-enabled-${session_id}"
-[ -f "$marker" ] || exit 0
-
-stored_title=$(cat "$marker")
-[ -n "$stored_title" ] && export NTFY_TITLE="$stored_title"
+# Reads the hook payload into $payload; exits 0 here unless notifications are enabled for the session.
+source "$(dirname "${BASH_SOURCE[0]}")/session-gate.sh"
 
 message=$(printf '%s' "$payload" | python3 -c "
 import sys, json

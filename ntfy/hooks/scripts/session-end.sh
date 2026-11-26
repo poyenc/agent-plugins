@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # SessionEnd hook -- clean up the marker file for this session.
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../../scripts/marker.sh"
 
 payload=$(cat)
 
-session_id=$(printf '%s' "$payload" | python3 -c \
-    "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null || true)
+session_id=$(ntfy_payload_session_id "$payload")
 
 [ -n "$session_id" ] || exit 0
 
-rm -f "${CLAUDE_CODE_TMPDIR:-/tmp}/ntfy-plugin/active/notify-enabled-${session_id}"
+ntfy_marker_disable "$session_id"
 exit 0
