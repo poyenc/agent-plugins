@@ -7,7 +7,7 @@ set -euo pipefail
 body="${1:-Agent needs input}"
 
 # Strip markdown formatting
-if [ -z "${NTFY_RAW:-}" ]; then
+if [ "${NTFY_RAW:-}" != 1 ]; then
 body=$(printf '%s' "$body" | python3 -c "
 import sys, re
 text = sys.stdin.read()
@@ -33,10 +33,12 @@ if [ "${#body}" -gt 4096 ]; then
 fi
 title="${NTFY_TITLE:-Agent needs input}"
 
-curl -s \
+# Bounded: the hooks that call this run synchronously, and an unreachable server must not leave a
+# curl process hanging. Pushes are a few hundred bytes, so 10 s is ample for a working server.
+curl -s --max-time 10 \
     -H "Title: ${title}" \
     -H "Priority: ${NTFY_PRIORITY:-default}" \
     -H "Tags: bell" \
     ${NTFY_TOKEN:+-H "Authorization: Bearer ${NTFY_TOKEN}"} \
-    -d "${body}" \
+    --data-raw "${body}" \
     "${NTFY_URL:-https://ntfy.sh}/${NTFY_TOPIC:-agent-notify-topic}" >/dev/null || true

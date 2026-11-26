@@ -11,7 +11,7 @@ assert_eq(){ if [[ "$2" == "$3" ]]; then echo "  PASS: $1"; PASS=$((PASS+1)); el
 
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/bin"
-printf '#!/usr/bin/env bash\nwhile [ $# -gt 0 ]; do [ "$1" = "-d" ] && { printf "%%s" "$2" > "$T_OUT"; break; }; shift; done\n' > "$T/bin/curl"
+printf '#!/usr/bin/env bash\nwhile [ $# -gt 0 ]; do [ "$1" = "--data-raw" ] && { printf "%%s" "$2" > "$T_OUT"; break; }; shift; done\n' > "$T/bin/curl"
 chmod +x "$T/bin/curl"
 export CLAUDE_CODE_TMPDIR="$T/tmp" CLAUDE_PLUGIN_ROOT="$ROOT" CLAUDE_CODE_SESSION_ID=sess1 T_OUT="$T/out"
 export PATH="$T/bin:$PATH"

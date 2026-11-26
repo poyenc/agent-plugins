@@ -50,7 +50,7 @@ echo "== REAL SENDER: the command reaches curl byte for byte (not markdown-strip
 mkdir -p "$T/bin"
 cat > "$T/bin/curl" <<'EOF2'
 #!/usr/bin/env bash
-while [ $# -gt 0 ]; do [ "$1" = "-d" ] && { printf '%s' "$2" > "$CURL_OUT"; break; }; shift; done
+while [ $# -gt 0 ]; do [ "$1" = "--data-raw" ] && { printf '%s' "$2" > "$CURL_OUT"; break; }; shift; done
 EOF2
 chmod +x "$T/bin/curl"
 REAL_ROOT="$(cd "$HERE/../.." && pwd)"
