@@ -24,19 +24,19 @@ asked to notify on a specific event (task complete, error, milestone, question, 
 
 ## How It Works
 
-Three hooks fire when notifications are enabled:
+Three hooks send notifications when they are enabled:
 
 | Hook | Trigger | Behavior |
 |------|---------|----------|
 | `PreToolUse` on `AskUserQuestion` | Agent uses the question tool | Sends notification with the exact question text (precise) |
 | `PermissionRequest` | A permission dialog is about to show | Sends notification with the tool name and its command or file path (first 300 chars) |
-| `Stop` | Agent stops and its message contains `?` | Sends notification with the last 300 chars of the message (best-effort fallback for plain-text questions) |
+| `Stop` | Agent stops and its message contains `?` | Sends notification with the question paragraph and its context (the last 300 chars if no paragraph is found); best-effort fallback for plain-text questions |
 
 The permission push carries the tool name and its command or file path, sent to the configured ntfy server (public `ntfy.sh` by default). Commands can contain secrets, so use a private topic and `NTFY_TOKEN` (see Configuration).
 
 A `SessionEnd` hook cleans up the per-session marker file on exit.
 
-The enabled state is stored as a marker file at `${CLAUDE_CODE_TMPDIR}/ntfy-plugin/active/notify-enabled-<session_id>`. If a title was passed to `/ntfy-on`, it is written into that file and read back by the hooks and `/ntfy-user` to override `NTFY_TITLE` for all notifications in the session.
+The enabled state is stored as a per-session marker file under `${CLAUDE_CODE_TMPDIR:-/tmp}` (location and format are defined only in `scripts/marker.sh`). If a title was passed to `/ntfy-on`, it is written into that file and read back by the hooks and `/ntfy-user` to override `NTFY_TITLE` for all notifications in the session.
 
 ## Configuration
 
@@ -60,4 +60,14 @@ Example `~/.claude/settings.json` snippet:
     "NTFY_PRIORITY": "high"
   }
 }
+```
+
+## Tests
+
+`hooks/tests/test-*.sh` feed each notification hook a synthetic payload and a stub sender. `tests/test-*.sh`
+cover what is shared: the marker across the hooks and skill scripts, and `scripts/ntfy-send.sh` (no network;
+`curl` is stubbed). Run all of them:
+
+```sh
+for t in hooks/tests/test-*.sh tests/test-*.sh; do bash "$t"; done
 ```

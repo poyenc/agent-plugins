@@ -13,7 +13,7 @@
     {
       "name": "ntfy",
       "source": "./ntfy",
-      "description": "ntfy.sh push notifications when the agent asks a question. Off by default; toggle per-session with /ntfy-on and /ntfy-off."
+      "description": "ntfy.sh push notifications when the agent asks a question or needs a permission decision. Off by default; toggle per-session with /ntfy-on and /ntfy-off."
     },
     {
       "name": "guardrails",
